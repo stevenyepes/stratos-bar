@@ -70,6 +70,7 @@ export const MathSkill = {
                 q = q.replace(/\band\b/g, '*')
             } else if (/^(divide|quotient)/.test(q)) {
                 q = q.replace(/\band\b/g, '/')
+                q = q.replace(/\bby\b/g, '/')
             } else if (/^(difference|subtract)/.test(q)) {
                 q = q.replace(/\band\b/g, '-')
             } else {
@@ -84,7 +85,7 @@ export const MathSkill = {
         }
 
         // Remove "is", "calculate", "what is"
-        q = q.replace(/^(calculate|what is|compute)\s+/, '')
+        q = q.replace(/^(calculate|what is|compute|sum|add|product|multiply|difference|subtract|divide|quotient)\s+/, '')
 
         // Final sanity check: does it look like math now?
         // It should explicitly have numbers and operators

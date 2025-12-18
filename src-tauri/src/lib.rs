@@ -4,6 +4,27 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 use walkdir::WalkDir;
 
+// Public for testing, or just use within module
+fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
+    let cleaned = exec_cmd
+        .replace("%f", "")
+        .replace("%F", "")
+        .replace("%u", "")
+        .replace("%U", "")
+        .replace("%i", "")
+        .replace("%c", "")
+        .replace("%k", "");
+
+    let parts: Vec<&str> = cleaned.trim().split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let cmd = parts[0].to_string();
+    let args = parts[1..].iter().map(|s| s.to_string()).collect();
+    Some((cmd, args))
+}
+
 struct PaletteTray {
     handle: tauri::AppHandle,
 }
@@ -217,24 +238,7 @@ async fn list_scripts() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 async fn launch_app(exec_cmd: String) -> Result<(), String> {
-    // Basic Exec parsing: remove %f, %F, %u, %U placeholders
-    // Split by space, handle quotes
-    let cleaned = exec_cmd
-        .replace("%f", "")
-        .replace("%F", "")
-        .replace("%u", "")
-        .replace("%U", "")
-        .replace("%i", "")
-        .replace("%c", "")
-        .replace("%k", "");
-
-    let parts: Vec<&str> = cleaned.trim().split_whitespace().collect();
-    if parts.is_empty() {
-        return Err("Empty command".to_string());
-    }
-
-    let cmd = parts[0];
-    let args = &parts[1..];
+    let (cmd, args) = parse_exec_command(&exec_cmd).ok_or_else(|| "Empty command".to_string())?;
 
     std::process::Command::new(cmd)
         .args(args)
@@ -546,4 +550,42 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_greet() {
+        let result = greet("World");
+        assert_eq!(result, "Hello, World! You've been greeted from Rust!");
+    }
+
+    #[test]
+    fn test_parse_exec_command() {
+        // Basic command
+        let (cmd, args) = parse_exec_command("firefox").unwrap();
+        assert_eq!(cmd, "firefox");
+        assert!(args.is_empty());
+
+        // Command with args
+        let (cmd, args) = parse_exec_command("code .").unwrap();
+        assert_eq!(cmd, "code");
+        assert_eq!(args, vec!["."]);
+
+        // Placeholders (should be removed)
+        let (cmd, args) = parse_exec_command("mpv %f").unwrap();
+        assert_eq!(cmd, "mpv");
+        assert!(args.is_empty());
+
+        // Complex placeholders
+        let (cmd, args) = parse_exec_command("app --url %u --file %f").unwrap();
+        assert_eq!(cmd, "app");
+        assert_eq!(args, vec!["--url", "--file"]);
+
+        // Empty command
+        assert!(parse_exec_command("").is_none());
+        assert!(parse_exec_command("   ").is_none());
+    }
 }
