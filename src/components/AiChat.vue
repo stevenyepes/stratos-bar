@@ -194,8 +194,8 @@ async function handleMessageClick(event) {
 }
 /* Ensure glass effect inherits or is redefined if needed */
 .glass-effect {
-  background: #1e1e1e !important; 
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--theme-background, #1e1e1e) !important;
+  color: var(--theme-text, #ffffff);
 }
 
 .font-mono {

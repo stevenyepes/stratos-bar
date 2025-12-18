@@ -4,6 +4,18 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct ThemeConfig {
+    pub name: String,
+    pub primary: String,
+    pub secondary: String,
+    pub background: String,
+    pub surface: String,
+    pub text: String,
+    #[serde(default)]
+    pub is_custom: bool,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct AiTool {
     pub id: String,
     pub name: String,
@@ -25,6 +37,8 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub shortcuts: HashMap<String, String>, // trigger -> tool_id or app_name
+
+    pub theme: Option<ThemeConfig>,
 }
 
 pub struct ConfigManager;
@@ -55,6 +69,18 @@ impl ConfigManager {
             config.preferred_model = "local".to_string();
             config.local_model_url = Some("http://localhost:11434".to_string());
             config.ollama_model = Some("llama3".to_string());
+        }
+
+        if config.theme.is_none() {
+            config.theme = Some(ThemeConfig {
+                name: "Tokyo Night".to_string(),
+                primary: "#7aa2f7".to_string(),
+                secondary: "#bb9af7".to_string(),
+                background: "#1a1b26".to_string(),
+                surface: "#24283b".to_string(),
+                text: "#c0caf5".to_string(),
+                is_custom: false,
+            });
         }
 
         // Default AI Tools

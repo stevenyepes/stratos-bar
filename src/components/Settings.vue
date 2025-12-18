@@ -1,229 +1,342 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" fullscreen transition="dialog-bottom-transition">
-    <v-card class="settings-card fill-height">
-      <div class="d-flex fill-height">
-        <!-- Sidebar -->
-        <div class="settings-sidebar bg-grey-darken-4 border-r-thin" style="width: 250px; flex-shrink: 0;">
-          <v-list density="compact" nav class="pt-4">
-              <v-list-item 
-                  prepend-icon="mdi-cog" 
-                  title="General & AI" 
-                  value="general" 
-                  :active="activeTab === 'general'"
-                  @click="activeTab = 'general'"
-              ></v-list-item>
-              <v-list-item 
-                  prepend-icon="mdi-robot" 
-                  title="AI Tools" 
-                  value="tools" 
-                  :active="activeTab === 'tools'"
-                  @click="activeTab = 'tools'"
-              ></v-list-item>
-               <v-list-item 
-                  prepend-icon="mdi-keyboard" 
-                  title="Shortcuts" 
-                  value="shortcuts" 
-                  :active="activeTab === 'shortcuts'"
-                  @click="activeTab = 'shortcuts'"
-              ></v-list-item>
-          </v-list>
-          
-          <div class="pa-2" style="position: absolute; bottom: 0; left: 0; right: 0;">
-            <v-btn block color="red" variant="text" @click="$emit('update:modelValue', false)">Close</v-btn>
-          </div>
-        </div>
+  <v-dialog 
+    :model-value="modelValue" 
+    @update:model-value="$emit('update:modelValue', $event)" 
+    fullscreen 
+    transition="dialog-bottom-transition"
+    class="settings-dialog"
+  >
+    <div class="settings-container fill-height d-flex align-center justify-center" @click.self="$emit('update:modelValue', false)">
+      <v-card class="settings-card rounded-xl elevation-24" width="90%" max-width="1200" height="85vh" style="overflow: hidden;">
+        <div class="d-flex fill-height">
+          <!-- Sidebar -->
+          <div class="settings-sidebar d-flex flex-column pa-4">
+            <div class="d-flex align-center mb-6 px-2 mt-2">
+              <v-icon icon="mdi-palette-swatch" size="small" class="mr-2 text-primary"></v-icon>
+              <span class="text-subtitle-2 font-weight-bold text-uppercase text-medium-emphasis">Settings</span>
+            </div>
 
-        <!-- Content -->
-        <div class="flex-grow-1 overflow-y-auto pa-6">
-        
-        <!-- General / Model Settings -->
-        <div v-if="activeTab === 'general'">
-            <h2 class="text-h5 mb-4">AI Configuration</h2>
-            <v-card class="bg-surface-light rounded-xl mb-4" flat>
-                <v-card-text>
-                    <v-select
+            <v-list density="compact" nav class="bg-transparent pa-0">
+              <v-list-item 
+                v-for="item in menuItems"
+                :key="item.value"
+                :value="item.value"
+                :active="activeTab === item.value"
+                @click="activeTab = item.value"
+                rounded="lg"
+                class="mb-1 setting-nav-item"
+                color="primary"
+              >
+                <template v-slot:prepend>
+                  <v-icon :icon="item.icon" size="small" class="mr-3"></v-icon>
+                </template>
+                <v-list-item-title class="font-weight-medium text-body-2">{{ item.title }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+            
+            <v-spacer></v-spacer>
+            
+            <div class="text-center text-caption text-disabled mb-2">v0.1.0</div>
+          </div>
+
+          <!-- Content -->
+          <div class="settings-content flex-grow-1 d-flex flex-column bg-surface-darker">
+            <!-- Header -->
+            <div class="d-flex align-center px-8 py-5 border-b-thin bg-surface-header">
+              <h2 class="text-h5 font-weight-bold">{{ activeTitle }}</h2>
+              <v-spacer></v-spacer>
+              <v-btn icon="mdi-close" variant="text" density="comfortable" @click="$emit('update:modelValue', false)"></v-btn>
+            </div>
+
+            <div class="content-scroll-area flex-grow-1 overflow-y-auto px-8 py-6">
+              <v-container class="pa-0" style="max-width: 1000px; margin: 0 auto;">
+              <v-fade-transition mode="out-in">
+                
+                <!-- General / Model Settings -->
+                <div v-if="activeTab === 'general'" key="general">
+                  <div class="section-title mb-4">AI Configuration</div>
+                  <v-card class="setting-section-card border-thin mb-6" flat>
+                    <v-card-text class="pa-5">
+                      <v-select
                         v-model="config.preferred_model"
                         label="Preferred AI Provider"
                         :items="['local', 'cloud']"
                         variant="outlined"
-                        bg-color="grey-darken-4"
-                    ></v-select>
-                    
-                    <v-expand-transition>
+                        hide-details="auto"
+                        class="mb-4 custom-input"
+                      ></v-select>
+                      
+                      <v-expand-transition>
                         <div v-if="config.preferred_model === 'local'">
-                            <v-text-field
+                          <v-text-field
                             v-model="config.local_model_url"
-                            label="Ollama URL"
-                            hint="e.g. http://localhost:11434"
+                            label="Ollama Server URL"
+                            placeholder="http://localhost:11434"
                             variant="outlined"
-                            bg-color="grey-darken-4"
+                            hide-details="auto"
+                            class="mb-4 custom-input"
                             @blur="fetchOllamaModels"
-                            ></v-text-field>
-                            
+                          ></v-text-field>
+                          
+                          <div class="d-flex gap-2">
                             <v-select
-                                v-model="config.ollama_model"
-                                :items="ollamaModels"
-                                label="Select Model"
-                                :loading="fetchingModels"
-                                variant="outlined"
-                                bg-color="grey-darken-4"
-                                no-data-text="No models found"
-                            >
-                                <template v-slot:append-item> 
-                                    <div class="pa-2">
-                                        <v-btn block size="small" variant="text" @click="fetchOllamaModels">Refresh Models</v-btn>
-                                    </div>
-                                </template>
-                            </v-select>
+                              v-model="config.ollama_model"
+                              :items="ollamaModels"
+                              label="Selected Model"
+                              :loading="fetchingModels"
+                              variant="outlined"
+                              hide-details="auto"
+                              class="flex-grow-1 custom-input"
+                              no-data-text="No models found"
+                            ></v-select>
+                            <v-btn 
+                              icon="mdi-refresh" 
+                              variant="outlined" 
+                              height="56" 
+                              width="56" 
+                              class="rounded-lg border-opacity-50" 
+                              :loading="fetchingModels"
+                              @click="fetchOllamaModels"
+                            ></v-btn>
+                          </div>
                         </div>
                         <div v-else>
-                            <v-text-field
+                          <v-text-field
                             v-model="config.openai_api_key"
                             label="OpenAI API Key"
                             type="password"
                             variant="outlined"
-                            bg-color="grey-darken-4"
-                            ></v-text-field>
+                            hide-details="auto"
+                            class="custom-input"
+                            placeholder="sk-..."
+                          ></v-text-field>
                         </div>
-                    </v-expand-transition>
-                </v-card-text>
-            </v-card>
-            <v-btn color="primary" @click="save">Save Changes</v-btn>
-        </div>
-
-        <!-- AI Tools Editor -->
-        <div v-if="activeTab === 'tools'">
-            <div class="d-flex align-center mb-4">
-                <h2 class="text-h5">AI Tools</h2>
-                <v-spacer></v-spacer>
-                <v-btn prepend-icon="mdi-plus" color="primary" @click="openToolEditor(null)">New Tool</v-btn>
-            </div>
-            
-            <div class="d-flex flex-wrap gap-4">
-                <v-card 
-                    v-for="(tool, i) in config.ai_tools" 
-                    :key="i"
-                    class="bg-surface-light rounded-xl mb-3 w-100"
-                    flat
-                >
-                    <v-card-item>
-                        <template v-slot:prepend>
-                            <v-avatar color="primary" variant="tonal" rounded>
-                                <v-icon :icon="tool.icon || 'mdi-robot'"></v-icon>
-                            </v-avatar>
-                        </template>
-                        <v-card-title>{{ tool.name }}</v-card-title>
-                        <v-card-subtitle>{{ tool.description }}</v-card-subtitle>
-                        <template v-slot:append>
-                             <v-btn icon="mdi-pencil" variant="text" size="small" @click="openToolEditor(tool, i)"></v-btn>
-                             <v-btn icon="mdi-delete" variant="text" size="small" color="red" @click="deleteTool(i)"></v-btn>
-                        </template>
-                    </v-card-item>
-                    <v-card-text class="pt-2">
-                        <v-chip-group>
-                            <v-chip v-for="kw in tool.keywords" :key="kw" size="x-small" label>{{ kw }}</v-chip>
-                        </v-chip-group>
+                      </v-expand-transition>
                     </v-card-text>
-                </v-card>
-            </div>
-        </div>
-        
-        <!-- Shortcuts Editor -->
-        <div v-if="activeTab === 'shortcuts'">
-             <div class="d-flex align-center mb-4">
-                <h2 class="text-h5">Shortcuts</h2>
-                <v-spacer></v-spacer>
-                <v-btn prepend-icon="mdi-plus" color="primary" @click="openShortcutEditor(null)">New Shortcut</v-btn>
-            </div>
-            
-            <v-table class="bg-surface-light rounded-xl">
-                <thead>
-                    <tr>
-                        <th class="text-left">Trigger</th>
-                        <th class="text-left">Action</th>
-                        <th class="text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="(target, trigger) in config.shortcuts" :key="trigger">
-                        <td><v-chip label color="secondary" class="font-mono">{{ trigger }}</v-chip></td>
-                        <td>{{ getToolName(target) || target }}</td>
-                        <td class="text-right">
-                            <v-btn icon="mdi-delete" variant="text" size="small" color="red" @click="deleteShortcut(trigger)"></v-btn>
-                        </td>
-                    </tr>
-                    <tr v-if="Object.keys(config.shortcuts || {}).length === 0">
-                        <td colspan="3" class="text-center text-medium-emphasis">No shortcuts defined</td>
-                    </tr>
-                </tbody>
-            </v-table>
-        </div>
-        </div>
+                  </v-card>
+                  
+                  <div class="d-flex justify-end">
+                    <v-btn color="primary" class="px-6 text-none" min-height="45" elevation="2" @click="save">Save Changes</v-btn>
+                  </div>
+                </div>
 
-      </div>
-    </v-card>
+                <!-- Appearance Settings -->
+                <div v-if="activeTab === 'appearance'" key="appearance">
+                  <div class="section-title mb-4">Theme Presets</div>
+                  <div class="theme-grid mb-6">
+                    <v-card 
+                      v-for="preset in themePresets" 
+                      :key="preset.name"
+                      :class="['theme-preset-card', { 'active': config.theme?.name === preset.name && !config.theme?.is_custom }]"
+                      @click="selectPreset(preset)"
+                      flat
+                    >
+                       <div class="preset-preview" :style="{ background: preset.background }">
+                          <div class="color-strips">
+                             <div :style="{ background: preset.primary }"></div>
+                             <div :style="{ background: preset.secondary }"></div>
+                             <div :style="{ background: preset.surface }"></div>
+                          </div>
+                       </div>
+                       <div class="pa-2 text-center text-caption font-weight-bold">{{ preset.name }}</div>
+                    </v-card>
+                  </div>
+
+                  <div class="d-flex align-center mb-4">
+                    <div class="section-title">Custom Colors</div>
+                    <v-spacer></v-spacer>
+                    <v-switch v-model="config.theme.is_custom" label="Enable Custom Colors" color="primary" hide-details density="compact"></v-switch>
+                  </div>
+
+                  <v-expand-transition>
+                    <div v-if="config.theme?.is_custom">
+                      <v-card class="setting-section-card border-thin mb-6" flat>
+                        <v-card-text class="pa-4">
+                           <div class="color-picker-grid">
+                              <div v-for="color in colorFields" :key="color.key" class="d-flex align-center border-b-thin py-2">
+                                 <div class="text-body-2">{{ color.label }}</div>
+                                 <v-spacer></v-spacer>
+                                 <div class="d-flex align-center">
+                                    <span class="text-caption font-mono mr-2 text-medium-emphasis">{{ config.theme[color.key] }}</span>
+                                    <input type="color" v-model="config.theme[color.key]" class="color-input">
+                                 </div>
+                              </div>
+                           </div>
+                        </v-card-text>
+                      </v-card>
+                    </div>
+                  </v-expand-transition>
+                  
+                  <div class="d-flex justify-end">
+                    <v-btn color="primary" class="px-6 text-none" min-height="45" elevation="2" @click="save">Save Theme</v-btn>
+                  </div>
+                </div>
+
+                <!-- AI Tools Editor -->
+                <div v-if="activeTab === 'tools'" key="tools">
+                  <div class="d-flex align-center mb-4">
+                     <div class="section-title">Enabled Tools</div>
+                    <v-spacer></v-spacer>
+                    <v-btn prepend-icon="mdi-plus" color="primary" variant="tonal" class="text-none" @click="openToolEditor(null)">Add Tool</v-btn>
+                  </div>
+                  
+                  <div class="tool-grid">
+                    <v-card 
+                      v-for="(tool, i) in config.ai_tools" 
+                      :key="i"
+                      class="tool-card border-thin"
+                      flat
+                      @click="openToolEditor(tool, i)"
+                    >
+                      <div class="d-flex flex-column fill-height pa-4">
+                        <div class="d-flex align-start mb-2">
+                          <v-avatar color="primary" variant="tonal" rounded size="40" class="mr-3">
+                            <v-icon :icon="tool.icon || 'mdi-robot'" size="24"></v-icon>
+                          </v-avatar>
+                          <div class="text-truncate">
+                            <div class="text-subtitle-2 font-weight-bold text-truncate">{{ tool.name }}</div>
+                            <div class="text-caption text-medium-emphasis text-truncate">{{ tool.description }}</div>
+                          </div>
+                          <v-spacer></v-spacer>
+                        </div>
+                        
+                        <v-spacer></v-spacer>
+                        
+                        <div class="d-flex align-center mt-2 pt-2 border-t-thin">
+                           <div class="d-flex gap-1 overflow-hidden mr-2">
+                             <v-chip v-for="kw in (tool.keywords || []).slice(0,2)" :key="kw" size="x-small" density="comfortable" variant="flat" class="bg-surface-light">{{ kw }}</v-chip>
+                             <span v-if="(tool.keywords || []).length > 2" class="text-caption text-disabled align-self-center">+{{ tool.keywords.length - 2 }}</span>
+                           </div>
+                           <v-spacer></v-spacer>
+                           <v-btn icon="mdi-delete-outline" variant="text" size="small" density="compact" color="error" @click.stop="deleteTool(i)"></v-btn>
+                        </div>
+                      </div>
+                    </v-card>
+                  </div>
+                </div>
+                
+                <!-- Shortcuts Editor -->
+                <div v-if="activeTab === 'shortcuts'" key="shortcuts">
+                  <div class="d-flex align-center mb-4">
+                     <div class="section-title">Keyboard Shortcuts</div>
+                    <v-spacer></v-spacer>
+                    <v-btn prepend-icon="mdi-plus" color="primary" variant="tonal" class="text-none" @click="openShortcutEditor(null)">Add Shortcut</v-btn>
+                  </div>
+                  
+                  <v-card class="border-thin overflow-hidden" flat>
+                    <v-table class="bg-transparent hover-table">
+                      <thead>
+                        <tr class="bg-surface-light">
+                          <th class="text-left font-weight-bold text-caption text-uppercase text-medium-emphasis">Trigger</th>
+                          <th class="text-left font-weight-bold text-caption text-uppercase text-medium-emphasis">Action</th>
+                          <th class="text-right font-weight-bold text-caption text-uppercase text-medium-emphasis" style="width: 80px">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(target, trigger) in config.shortcuts" :key="trigger">
+                          <td>
+                            <v-chip label size="small" variant="outlined" class="font-mono bg-surface-darker">{{ trigger }}</v-chip>
+                          </td>
+                          <td class="text-body-2">{{ getToolName(target) || target }}</td>
+                          <td class="text-right">
+                            <v-btn icon="mdi-delete-outline" variant="text" size="small" density="comfortable" color="medium-emphasis" @click="deleteShortcut(trigger)"></v-btn>
+                          </td>
+                        </tr>
+                        <tr v-if="Object.keys(config.shortcuts || {}).length === 0">
+                          <td colspan="3" class="text-center pa-8 text-medium-emphasis">
+                            <v-icon icon="mdi-keyboard-off" size="large" class="mb-2 opacity-50"></v-icon>
+                            <div>No shortcuts defined</div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </v-table>
+                  </v-card>
+                </div>
+
+              </v-fade-transition>
+              </v-container>
+            </div>
+          </div>
+        </div>
+      </v-card>
+    </div>
     
     <!-- Tool Editor Dialog -->
-    <template v-if="modelValue">
-      <v-dialog v-model="toolEditor.show" max-width="600">
-          <v-card class="rounded-xl glass-effect">
-              <v-card-title>{{ toolEditor.isNew ? 'Create Tool' : 'Edit Tool' }}</v-card-title>
-              <v-card-text>
-                  <v-text-field v-model="toolEditor.data.name" label="Name" variant="outlined"></v-text-field>
-                  <v-text-field v-model="toolEditor.data.description" label="Description" variant="outlined"></v-text-field>
-                  <v-text-field v-model="toolEditor.data.icon" label="Icon (mdi-name)" variant="outlined" prepend-inner-icon="mdi-emoticon-outline"></v-text-field>
-                  
-                  <v-combobox
-                      v-model="toolEditor.data.keywords"
-                      label="Keywords (Press Enter to add)"
-                      multiple
-                      chips
-                      variant="outlined"
-                      hint="Words that trigger this tool (e.g. 'rephrase')"
-                      persistent-hint
-                  ></v-combobox>
-                  
-                  <v-textarea 
-                      v-model="toolEditor.data.prompt_template" 
-                      label="Prompt Template" 
-                      variant="outlined" 
-                      rows="6"
-                      hint="Use {{selection}} to insert highlighted text."
-                      persistent-hint
-                      class="mt-4 font-mono"
-                  ></v-textarea>
-              </v-card-text>
-              <v-card-actions>
-                  <v-spacer></v-spacer>
-                  <v-btn @click="toolEditor.show = false">Cancel</v-btn>
-                  <v-btn color="primary" @click="saveTool">Save</v-btn>
-              </v-card-actions>
-          </v-card>
-      </v-dialog>
+    <v-dialog v-model="toolEditor.show" max-width="500" scrim="black opacity-80">
+        <v-card class="rounded-xl border-thin bg-surface-dialog">
+            <v-card-title class="px-6 pt-6 text-h6 font-weight-bold">{{ toolEditor.isNew ? 'Create Tool' : 'Edit Tool' }}</v-card-title>
+            <v-card-text class="px-6 pt-4">
+                <v-text-field v-model="toolEditor.data.name" label="Name" variant="outlined" density="comfortable" class="mb-3 custom-input"></v-text-field>
+                <v-text-field v-model="toolEditor.data.description" label="Description" variant="outlined" density="comfortable" class="mb-3 custom-input"></v-text-field>
+                <v-text-field v-model="toolEditor.data.icon" label="Icon (mdi-name)" variant="outlined" density="comfortable" prepend-inner-icon="mdi-emoticon-outline" class="mb-3 custom-input"></v-text-field>
+                
+                <v-combobox
+                    v-model="toolEditor.data.keywords"
+                    label="Keywords"
+                    multiple
+                    chips
+                    closable-chips
+                    variant="outlined"
+                    density="comfortable"
+                    hide-details="auto"
+                    placeholder="Press Enter to add..."
+                    class="mb-4 custom-input"
+                ></v-combobox>
+                
+                <v-textarea 
+                    v-model="toolEditor.data.prompt_template" 
+                    label="Prompt Template" 
+                    variant="outlined"
+                    density="comfortable" 
+                    rows="5"
+                    hide-details="auto"
+                    class="font-mono text-body-2 custom-input"
+                    bg-color="surface-darker"
+                ></v-textarea>
+                <div class="text-caption text-medium-emphasis mt-2">
+                  Use <code class="bg-surface-light px-1 rounded">@{{selection}}</code> to insert highlighted text.
+                </div>
+            </v-card-text>
+            <v-card-actions class="px-6 pb-6 pt-2">
+                <v-spacer></v-spacer>
+                <v-btn variant="text" class="text-none" @click="toolEditor.show = false">Cancel</v-btn>
+                <v-btn color="primary" variant="flat" class="px-6 text-none" @click="saveTool">Save Tool</v-btn>
+            </v-card-actions>
+        </v-card>
+    </v-dialog>
       
-      <!-- Shortcut Editor Dialog -->
-      <v-dialog v-model="shortcutEditor.show" max-width="400">
-          <v-card class="rounded-xl glass-effect">
-              <v-card-title>New Shortcut</v-card-title>
-               <v-card-text>
-                  <v-text-field v-model="shortcutEditor.trigger" label="Trigger (e.g. 'rpt')" variant="outlined" autofocus></v-text-field>
-                  <v-select 
-                      v-model="shortcutEditor.target" 
-                      :items="availableTargets" 
-                      item-title="name"
-                      item-value="id"
-                      label="Map to Tool or App" 
-                      variant="outlined"
-                  ></v-select>
-              </v-card-text>
-               <v-card-actions>
-                  <v-spacer></v-spacer>
-                  <v-btn @click="shortcutEditor.show = false">Cancel</v-btn>
-                  <v-btn color="primary" @click="saveShortcut">Save</v-btn>
-              </v-card-actions>
-          </v-card>
-      </v-dialog>
-    </template>
+    <!-- Shortcut Editor Dialog -->
+    <v-dialog v-model="shortcutEditor.show" max-width="400" scrim="black opacity-80">
+        <v-card class="rounded-xl border-thin bg-surface-dialog">
+            <v-card-title class="px-6 pt-6 text-h6 font-weight-bold">New Shortcut</v-card-title>
+              <v-card-text class="px-6 pt-4">
+                <v-text-field 
+                  v-model="shortcutEditor.trigger" 
+                  label="Trigger Keyword" 
+                  placeholder="e.g. 'sum'" 
+                  variant="outlined" 
+                  density="comfortable"
+                  class="mb-4 custom-input"
+                  autofocus
+                ></v-text-field>
+                <v-select 
+                    v-model="shortcutEditor.target" 
+                    :items="availableTargets" 
+                    item-title="name"
+                    item-value="id"
+                    label="Action" 
+                    variant="outlined"
+                    density="comfortable"
+                    class="custom-input"
+                ></v-select>
+            </v-card-text>
+              <v-card-actions class="px-6 pb-6 pt-2">
+                <v-spacer></v-spacer>
+                <v-btn variant="text" class="text-none" @click="shortcutEditor.show = false">Cancel</v-btn>
+                <v-btn color="primary" variant="flat" class="px-6 text-none" @click="saveShortcut">Add Shortcut</v-btn>
+            </v-card-actions>
+        </v-card>
+    </v-dialog>
     
   </v-dialog>
 </template>
@@ -231,18 +344,44 @@
 <script setup>
 import { ref, watch, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { themePresets, applyTheme } from '../theme'
+import { useTheme } from 'vuetify'
+
+const vTheme = useTheme()
 
 const props = defineProps(['modelValue', 'initialConfig', 'apps'])
 const emit = defineEmits(['update:modelValue', 'config-updated'])
 
 const activeTab = ref('general')
+
+const menuItems = [
+  { title: 'General & AI', value: 'general', icon: 'mdi-cog-outline' },
+  { title: 'Appearance', value: 'appearance', icon: 'mdi-palette-outline' },
+  { title: 'AI Tools', value: 'tools', icon: 'mdi-robot-outline' },
+  { title: 'Shortcuts', value: 'shortcuts', icon: 'mdi-keyboard-outline' }
+]
+
+const activeTitle = computed(() => {
+  const item = menuItems.find(i => i.value === activeTab.value)
+  return item ? item.title : 'Settings'
+})
+
 const config = ref({ 
     preferred_model: 'local',
     ai_tools: [], 
     shortcuts: {},
     local_model_url: 'http://localhost:11434',
     openai_api_key: '',
-    ollama_model: ''
+    ollama_model: '',
+    theme: {
+        name: 'Tokyo Night',
+        primary: '#7aa2f7',
+        secondary: '#bb9af7',
+        background: '#1a1b26',
+        surface: '#24283b',
+        text: '#c0caf5',
+        is_custom: false
+    }
 })
 const ollamaModels = ref([])
 const fetchingModels = ref(false)
@@ -251,22 +390,10 @@ watch(() => props.initialConfig, (val) => {
     console.log('Settings: initialConfig changed:', val)
     if (val) {
         config.value = JSON.parse(JSON.stringify(val))
-        // Ensure shortcuts exists
         if(!config.value.shortcuts) config.value.shortcuts = {}
         if(val && val.preferred_model === 'local') fetchOllamaModels()
     }
 }, { deep: true, immediate: true })
-
-onMounted(() => {
-    console.log('Settings component mounted!')
-    console.log('modelValue:', props.modelValue)
-    console.log('initialConfig:', props.initialConfig)
-    console.log('apps:', props.apps?.length)
-})
-
-const availableTools = computed(() => {
-    return (config.value.ai_tools || []).map(t => ({ name: t.name, id: t.id }))
-})
 
 const availableTargets = computed(() => {
     const tools = (config.value.ai_tools || []).map(t => ({ 
@@ -315,7 +442,7 @@ function saveTool() {
 }
 
 function deleteTool(index) {
-    if(confirm('Are you sure?')) {
+    if(confirm('Are you sure you want to delete this tool?')) {
         config.value.ai_tools.splice(index, 1)
         save()
     }
@@ -338,17 +465,10 @@ function saveShortcut() {
     if (!shortcutEditor.value.trigger || !shortcutEditor.value.target) return
     if (!config.value.shortcuts) config.value.shortcuts = {}
     
-    console.log('Saving shortcut:', shortcutEditor.value.trigger, '->', shortcutEditor.value.target)
-    console.log('Config before save:', JSON.stringify(config.value.shortcuts))
-    
-    // Force reactivity by creating new object
     config.value.shortcuts = {
         ...config.value.shortcuts,
         [shortcutEditor.value.trigger]: shortcutEditor.value.target
     }
-    
-    console.log('Config after update:', JSON.stringify(config.value.shortcuts))
-    
     shortcutEditor.value.show = false
     save()
 }
@@ -362,13 +482,11 @@ function deleteShortcut(trigger) {
 }
 
 function getToolName(id) {
-    // Check if it's an app shortcut
     if (id.startsWith('app:')) {
         const exec = id.substring(4)
         const app = (props.apps || []).find(a => a.exec === exec)
         return app ? `📱 ${app.name}` : exec
     }
-    // Otherwise it's a tool
     const t = config.value.ai_tools.find(x => x.id === id)
     return t ? `🤖 ${t.name}` : id
 }
@@ -386,11 +504,32 @@ async function fetchOllamaModels() {
     }
 }
 
+const colorFields = [
+    { label: 'Primary', key: 'primary' },
+    { label: 'Secondary', key: 'secondary' },
+    { label: 'Background', key: 'background' },
+    { label: 'Surface', key: 'surface' },
+    { label: 'Text', key: 'text' }
+]
+
+function selectPreset(preset) {
+    config.value.theme = { ...preset, is_custom: false }
+    applyTheme(config.value.theme)
+}
+
+watch(() => config.value?.theme, (newTheme) => {
+    if (newTheme) {
+        applyTheme(newTheme)
+        // Update Vuetify dynamic colors
+        vTheme.themes.value.dark.colors.primary = newTheme.primary
+        vTheme.themes.value.dark.colors.secondary = newTheme.secondary
+        vTheme.themes.value.dark.colors.background = newTheme.background
+    }
+}, { deep: true })
+
 async function save() {
-    console.log('Saving config to backend:', JSON.stringify(config.value, null, 2))
     try {
         await invoke('save_config', { config: config.value })
-        console.log('Config saved successfully')
         emit('config-updated', config.value)
     } catch (e) {
         console.error('Failed to save config:', e)
@@ -399,17 +538,179 @@ async function save() {
 </script>
 
 <style scoped>
+.settings-dialog :deep(.v-overlay__content) {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
 .settings-card {
-    background: #1e1e1e !important;
+  background: rgba(30, 30, 30, 0.95) !important;
+  backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
 }
+
 .settings-sidebar {
-    position: relative;
-    height: 100%;
+  width: 260px;
+  background: rgba(0, 0, 0, 0.2);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
 }
-.border-r-thin {
-    border-right: 1px solid rgba(255,255,255,0.1);
+
+.settings-content {
+  position: relative;
 }
+
+.bg-surface-darker {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.bg-surface-header {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.setting-section-card {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Tool Grid */
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.tool-card {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.05) !important;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  height: 100%;
+}
+
+.tool-card:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  transform: translateY(-2px);
+  border-color: rgba(var(--v-theme-primary), 0.3) !important;
+}
+
+/* Custom Inputs to look more "native" to the dark theme */
+:deep(.custom-input .v-field__outline__start),
+:deep(.custom-input .v-field__outline__end),
+:deep(.custom-input .v-field__outline__notch) {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+:deep(.custom-input.v-input--is-focused .v-field__outline__start),
+:deep(.custom-input.v-input--is-focused .v-field__outline__end),
+:deep(.custom-input.v-input--is-focused .v-field__outline__notch) {
+  border-color: rgb(var(--v-theme-primary)) !important;
+}
+
+.section-title {
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.border-thin {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
 .font-mono {
-    font-family: monospace;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+}
+
+.gap-2 { gap: 8px; }
+.gap-4 { gap: 16px; }
+
+/* Scrollbar styling */
+.content-scroll-area::-webkit-scrollbar {
+  width: 8px;
+}
+.content-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.content-scroll-area::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+.content-scroll-area::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.bg-surface-dialog {
+  background: var(--theme-surface, #1e1e1e) !important;
+}
+
+/* Theme Appearance Styles */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+}
+
+.theme-preset-card {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.theme-preset-card:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  transform: translateY(-2px);
+}
+
+.theme-preset-card.active {
+  border-color: var(--theme-primary, #BB86FC) !important;
+  background: rgba(var(--v-theme-primary), 0.1) !important;
+}
+
+.preset-preview {
+  height: 60px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.color-strips {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 4px;
+}
+
+.color-strips > div {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.color-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 32px;
+  height: 32px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.color-input::-webkit-color-swatch {
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.2);
+}
+
+.color-picker-grid {
+    display: flex;
+    flex-direction: column;
 }
 </style>

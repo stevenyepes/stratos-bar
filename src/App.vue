@@ -26,7 +26,7 @@
             autofocus
             @keydown.down.prevent="navigateResults(1)"
             @keydown.up.prevent="navigateResults(-1)"
-            @keydown.enter="executeAction(selectedIndex)"
+            @keydown.enter.prevent="executeAction(selectedIndex)"
             @keydown.esc="handleEsc"
           ></v-text-field>
         </div>
@@ -40,7 +40,7 @@
           :active="selectedIndex === 0"
           rounded="lg"
           class="mb-2 bg-surface-light"
-          @click="executeAiTool(matchedTool)"
+          @click="executeAction(0)"
         >
           <template v-slot:prepend>
             <v-icon :icon="matchedTool.icon || 'mdi-robot'" color="purple-accent-2" class="mr-3"></v-icon>
@@ -160,6 +160,11 @@ import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import AiChat from './components/AiChat.vue'
 import Settings from './components/Settings.vue'
+import SkillManager from './skills'
+import { applyTheme } from './theme'
+import { useTheme } from 'vuetify'
+
+const vTheme = useTheme()
 
 console.log('App.vue loaded (Safe Imports Mode)')
 
@@ -216,6 +221,18 @@ async function reloadConfig() {
     config.value = await invoke('get_config')
     // Ensure shortcuts exists
     if (!config.value.shortcuts) config.value.shortcuts = {}
+    
+    if (config.value.theme) {
+        applyTheme(config.value.theme)
+        updateVuetifyTheme(config.value.theme)
+    }
+}
+
+function updateVuetifyTheme(theme) {
+    if (!theme) return
+    vTheme.themes.value.dark.colors.primary = theme.primary
+    vTheme.themes.value.dark.colors.secondary = theme.secondary
+    vTheme.themes.value.dark.colors.background = theme.background
 }
 
 // Search Files
@@ -280,6 +297,19 @@ const matchedTool = computed(() => {
         }
     }
     
+    // 3. Check SkillManager
+    const skillMatch = SkillManager.match(q)
+    if (skillMatch) {
+         return {
+             type: 'skill',
+             name: skillMatch.skill.name,
+             description: skillMatch.preview || skillMatch.skill.description,
+             icon: skillMatch.skill.icon,
+             skill: skillMatch.skill,
+             data: skillMatch.data
+         }
+    }
+
     return null
 })
 
@@ -354,6 +384,8 @@ async function executeAction(index) {
      if (matchedTool.value) {
          if (matchedTool.value.type === 'app') {
              await executeApp(matchedTool.value.data)
+         } else if (matchedTool.value.type === 'skill') {
+             await executeSkill(matchedTool.value)
          } else {
              executeAiTool(matchedTool.value)
          }
@@ -400,6 +432,27 @@ async function executeAiTool(tool) {
         initialAiQuery.value = "Failed to retrieve text context for this tool."
         showAiChat.value = true
         await updateWindowSize(true)
+    }
+}
+
+async function executeSkill(match) {
+    try {
+        const result = await match.skill.execute(match.data)
+        // If result is a string/number, determine what to do.
+        // For now, copy to clipboard and notify/close
+        if (result !== undefined && result !== null) {
+            try {
+                await invoke('copy_to_clipboard', { text: result.toString() })
+                // Delay hiding to ensure clipboard transfer completes (Wayland race condition fix)
+                await new Promise(resolve => setTimeout(resolve, 200))
+            } catch (e) {
+                console.error("Clipboard failed", e)
+            }
+            // Maybe show a toast? For now just close.
+            await hideWindow()
+        }
+    } catch(e) {
+        console.error("Failed to execute skill", e)
     }
 }
 
@@ -473,8 +526,21 @@ function getFileName(path) {
 <style>
 /* Opaque Theme */
 .glass-effect {
-  background: #1e1e1e !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--theme-background, #1e1e1e) !important;
+  color: var(--theme-text, #ffffff);
+}
+
+.search-bar :deep(.v-field) {
+    background-color: var(--theme-surface, #2d2d2d) !important;
+}
+
+.bg-surface-light {
+    background-color: var(--theme-surface, rgba(255, 255, 255, 0.05)) !important;
+}
+
+.v-list-subheader {
+    color: var(--theme-primary) !important;
+    opacity: 0.8;
 }
 
 /* Hide scrollbar but keep functionality */

@@ -375,9 +375,52 @@ async fn get_selection_context() -> Result<String, String> {
     Err("No text found in selection or clipboard".to_string())
 }
 
+#[tauri::command]
+async fn copy_to_clipboard(text: String) -> Result<(), String> {
+    println!("DEBUG: copy_to_clipboard called with text: '{}'", text);
+
+    // Helper to pipe input to command
+    fn run_input(cmd: &str, args: &[&str], input: &str) -> Result<(), String> {
+        let mut child = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(input.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+
+        let status = child.wait().map_err(|e| e.to_string())?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Command {} failed with status {:?}", cmd, status))
+        }
+    }
+
+    // 1. Try wl-copy (Wayland)
+    if run_input("wl-copy", &["--type", "text/plain"], &text).is_ok() {
+        return Ok(());
+    }
+
+    // 2. Try xclip (X11)
+    // -selection clipboard
+    if run_input("xclip", &["-selection", "clipboard"], &text).is_ok() {
+        return Ok(());
+    }
+
+    // 3. Fallback to arboard via a new instance? Or just error.
+    Err("Failed to copy to clipboard (wl-copy and xclip failed)".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = app.emit("open_request", ()); // Optional: emit event to frontend
@@ -421,7 +464,8 @@ pub fn run() {
             ask_ai,
             list_scripts,
             list_ollama_models,
-            get_selection_context
+            get_selection_context,
+            copy_to_clipboard
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
