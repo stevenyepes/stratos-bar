@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "stv-palette",
+  "productName": "STV Palette",
   "version": "0.1.0",
   "identifier": "com.jsteven.stv-palette",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "stv-palette",
+        "title": "STV Palette",
         "width": 800,
         "height": 600,
         "decorations": false,

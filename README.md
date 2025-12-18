@@ -610,6 +610,55 @@ Used in `App.vue` and `AiChat.vue` styles.
 
 ---
 
+## 🪟 Window Manager Integration
+
+### Hyprland Configuration
+
+To seamlessly integrate STV Palette with Hyprland, add the following rules to your `hyprland.conf`.
+
+#### 1. Window Rules
+These rules ensure the app floats, stays centered, and looks clean without borders.
+
+```ini
+# Float the window
+windowrulev2 = float, class:^(stv-palette|Stv-palette|STV Palette)$
+
+# Center it on screen
+windowrulev2 = center, class:^(stv-palette|Stv-palette|STV Palette)$
+
+# Remove borders
+windowrulev2 = noborder, class:^(stv-palette|Stv-palette|STV Palette)$
+
+# Keep it focused and on top (like a launcher should)
+windowrulev2 = stayfocused, class:^(stv-palette|Stv-palette|STV Palette)$
+windowrulev2 = pin, class:^(stv-palette|Stv-palette|STV Palette)$
+```
+
+#### 2. Opacity Control
+You can manage the window transparency directly through window rules:
+
+```ini
+# Set active and inactive opacity (e.g., 0.9)
+windowrulev2 = opacity 0.9 0.9, class:^(stv-palette|Stv-palette|STV Palette)$
+```
+
+#### 3. Animations (Optional)
+Add a smooth slide-in animation for the launcher:
+
+```ini
+windowrulev2 = animation slide, class:^(stv-palette)$
+```
+
+#### 4. Launch Keybinding
+Bind a key (usually Super+Space) to execute the AppImage or binary.
+
+```ini
+# Replace with the actual path to your AppImage or binary
+bind = $mainMod, SPACE, exec, /path/to/stv-palette_0.1.0_amd64.AppImage
+```
+
+---
+
 ## 🔧 Troubleshooting
 
 ### Wayland Issues

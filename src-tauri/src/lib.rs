@@ -1,7 +1,70 @@
+use ksni;
 use std::io::Write;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 use walkdir::WalkDir;
+
+struct PaletteTray {
+    handle: tauri::AppHandle,
+}
+
+impl ksni::Tray for PaletteTray {
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        if let Some(img) = self.handle.default_window_icon() {
+            vec![ksni::Icon {
+                width: img.width() as i32,
+                height: img.height() as i32,
+                data: img.rgba().to_vec(),
+            }]
+        } else {
+            vec![]
+        }
+    }
+
+    fn id(&self) -> String {
+        "stv-palette".to_string()
+    }
+
+    fn title(&self) -> String {
+        "stv-palette".to_string()
+    }
+
+    fn activate(&mut self, _x: i32, _y: i32) {
+        if let Some(window) = self.handle.get_webview_window("main") {
+            if window.is_visible().unwrap_or(false) {
+                let _ = window.hide();
+            } else {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+    }
+
+    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
+        use ksni::menu::*;
+        vec![
+            StandardItem {
+                label: "Show".into(),
+                activate: Box::new(|this: &mut Self| {
+                    if let Some(window) = this.handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "Quit".into(),
+                activate: Box::new(|this: &mut Self| {
+                    this.handle.exit(0);
+                }),
+                ..Default::default()
+            }
+            .into(),
+        ]
+    }
+}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -47,7 +110,7 @@ async fn ask_ai(messages: Vec<Message>) -> Result<String, String> {
             "{}/api/chat",
             config
                 .local_model_url
-                .unwrap_or("http://localhost:11434".to_string())
+                .unwrap_or("http://127.0.0.1:11434".to_string())
         );
 
         let res = client
@@ -101,7 +164,7 @@ async fn list_ollama_models() -> Result<Vec<String>, String> {
         "{}/api/tags",
         config
             .local_model_url
-            .unwrap_or("http://localhost:11434".to_string())
+            .unwrap_or("http://127.0.0.1:11434".to_string())
     );
 
     let res = client.get(url).send().await.map_err(|e| e.to_string())?;
@@ -422,6 +485,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // Initialize KSNI Tray Service
+            let handle = app.handle().clone();
+            let tray = PaletteTray { handle };
+            let service = ksni::TrayService::new(tray);
+            let _handle = service.handle();
+
+            // Spawn the service (ksni uses blocking run, so usually needs a thread or async task)
+            // But ksni::TrayService::spawn returns a handle and runs in background if runtime available?
+            // Actually ksni service.spawn() spawns it. simple.
+            service.spawn();
+
+            Ok(())
+        })
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = app.emit("open_request", ()); // Optional: emit event to frontend
             if let Some(window) = app.get_webview_window("main") {

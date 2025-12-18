@@ -1,51 +1,46 @@
 <template>
-  <v-dialog 
-    :model-value="modelValue" 
-    @update:model-value="$emit('update:modelValue', $event)" 
-    fullscreen 
-    transition="dialog-bottom-transition"
-    class="settings-dialog"
-  >
-    <div class="settings-container fill-height d-flex align-center justify-center" @click.self="$emit('update:modelValue', false)">
-      <v-card class="settings-card rounded-xl elevation-24" width="90%" max-width="1200" height="85vh" style="overflow: hidden;">
+  <transition name="settings-slide">
+    <div v-if="modelValue" class="settings-panel-overlay" @click.self="$emit('update:modelValue', false)">
+      <div class="settings-panel">
         <div class="d-flex fill-height">
+
           <!-- Sidebar -->
           <div class="settings-sidebar d-flex flex-column pa-4">
             <div class="d-flex align-center mb-6 px-2 mt-2">
-              <v-icon icon="mdi-palette-swatch" size="small" class="mr-2 text-primary"></v-icon>
+              <v-icon icon="mdi-cog" size="small" class="mr-2 text-primary"></v-icon>
               <span class="text-subtitle-2 font-weight-bold text-uppercase text-medium-emphasis">Settings</span>
             </div>
 
-            <v-list density="compact" nav class="bg-transparent pa-0">
+            <v-list density="comfortable" nav class="bg-transparent pa-0">
               <v-list-item 
                 v-for="item in menuItems"
                 :key="item.value"
                 :value="item.value"
                 :active="activeTab === item.value"
                 @click="activeTab = item.value"
-                rounded="lg"
-                class="mb-1 setting-nav-item"
-                color="primary"
+                class="mb-2 setting-nav-item"
               >
                 <template v-slot:prepend>
-                  <v-icon :icon="item.icon" size="small" class="mr-3"></v-icon>
+                  <v-icon :icon="item.icon" size="20"></v-icon>
                 </template>
-                <v-list-item-title class="font-weight-medium text-body-2">{{ item.title }}</v-list-item-title>
+                <v-list-item-title class="text-body-2">{{ item.title }}</v-list-item-title>
               </v-list-item>
             </v-list>
             
             <v-spacer></v-spacer>
-            
-            <div class="text-center text-caption text-disabled mb-2">v0.1.0</div>
           </div>
 
           <!-- Content -->
           <div class="settings-content flex-grow-1 d-flex flex-column bg-surface-darker">
             <!-- Header -->
             <div class="d-flex align-center px-8 py-5 border-b-thin bg-surface-header">
-              <h2 class="text-h5 font-weight-bold">{{ activeTitle }}</h2>
+              <h2 class="text-h6 font-weight-medium">{{ activeTitle }}</h2>
               <v-spacer></v-spacer>
-              <v-btn icon="mdi-close" variant="text" density="comfortable" @click="$emit('update:modelValue', false)"></v-btn>
+              <transition name="fade">
+                <span v-if="showSaved" class="saved-indicator text-caption text-success mr-4">✓ Saved</span>
+              </transition>
+              <span class="text-caption text-disabled mr-4">v0.1.0</span>
+              <v-btn variant="text" class="text-none" @click="$emit('update:modelValue', false)">Done</v-btn>
             </div>
 
             <div class="content-scroll-area flex-grow-1 overflow-y-auto px-8 py-6">
@@ -54,70 +49,66 @@
                 
                 <!-- General / Model Settings -->
                 <div v-if="activeTab === 'general'" key="general">
-                  <div class="section-title mb-4">AI Configuration</div>
-                  <v-card class="setting-section-card border-thin mb-6" flat>
-                    <v-card-text class="pa-5">
-                      <v-select
-                        v-model="config.preferred_model"
-                        label="Preferred AI Provider"
-                        :items="['local', 'cloud']"
-                        variant="outlined"
-                        hide-details="auto"
-                        class="mb-4 custom-input"
-                      ></v-select>
-                      
-                      <v-expand-transition>
-                        <div v-if="config.preferred_model === 'local'">
-                          <v-text-field
-                            v-model="config.local_model_url"
-                            label="Ollama Server URL"
-                            placeholder="http://localhost:11434"
-                            variant="outlined"
-                            hide-details="auto"
-                            class="mb-4 custom-input"
-                            @blur="fetchOllamaModels"
-                          ></v-text-field>
-                          
-                          <div class="d-flex gap-2">
-                            <v-select
-                              v-model="config.ollama_model"
-                              :items="ollamaModels"
-                              label="Selected Model"
-                              :loading="fetchingModels"
-                              variant="outlined"
-                              hide-details="auto"
-                              class="flex-grow-1 custom-input"
-                              no-data-text="No models found"
-                            ></v-select>
-                            <v-btn 
-                              icon="mdi-refresh" 
-                              variant="outlined" 
-                              height="56" 
-                              width="56" 
-                              class="rounded-lg border-opacity-50" 
-                              :loading="fetchingModels"
-                              @click="fetchOllamaModels"
-                            ></v-btn>
-                          </div>
-                        </div>
-                        <div v-else>
-                          <v-text-field
-                            v-model="config.openai_api_key"
-                            label="OpenAI API Key"
-                            type="password"
-                            variant="outlined"
-                            hide-details="auto"
-                            class="custom-input"
-                            placeholder="sk-..."
-                          ></v-text-field>
-                        </div>
-                      </v-expand-transition>
-                    </v-card-text>
-                  </v-card>
+                  <div class="section-title mb-6">AI Configuration</div>
                   
-                  <div class="d-flex justify-end">
-                    <v-btn color="primary" class="px-6 text-none" min-height="45" elevation="2" @click="save">Save Changes</v-btn>
-                  </div>
+                  <v-select
+                    v-model="config.preferred_model"
+                    label="Preferred AI Provider"
+                    :items="['local', 'cloud']"
+                    variant="underlined"
+                    hide-details="auto"
+                    class="mb-6 custom-input"
+                    @update:model-value="autoSave"
+                  ></v-select>
+                  
+                  <v-expand-transition>
+                    <div v-if="config.preferred_model === 'local'">
+                      <v-text-field
+                        v-model="config.local_model_url"
+                        label="Ollama Server URL"
+                        placeholder="http://localhost:11434"
+                        variant="underlined"
+                        hide-details="auto"
+                        class="mb-6 custom-input"
+                        @blur="fetchOllamaModels"
+                        @update:model-value="debouncedSave"
+                      ></v-text-field>
+                      
+                      <div class="d-flex align-center gap-3 mb-6">
+                        <v-select
+                          v-model="config.ollama_model"
+                          :items="ollamaModels"
+                          label="Selected Model"
+                          :loading="fetchingModels"
+                          variant="underlined"
+                          hide-details="auto"
+                          class="flex-grow-1 custom-input"
+                          no-data-text="No models found"
+                          @update:model-value="autoSave"
+                        ></v-select>
+                        <v-btn 
+                          icon="mdi-refresh" 
+                          variant="text" 
+                          size="small"
+                          class="refresh-btn" 
+                          :loading="fetchingModels"
+                          @click="fetchOllamaModels"
+                        ></v-btn>
+                      </div>
+                    </div>
+                    <div v-else>
+                      <v-text-field
+                        v-model="config.openai_api_key"
+                        label="OpenAI API Key"
+                        type="password"
+                        variant="underlined"
+                        hide-details="auto"
+                        class="custom-input mb-6"
+                        placeholder="sk-..."
+                        @update:model-value="debouncedSave"
+                      ></v-text-field>
+                    </div>
+                  </v-expand-transition>
                 </div>
 
                 <!-- Appearance Settings -->
@@ -145,7 +136,7 @@
                   <div class="d-flex align-center mb-4">
                     <div class="section-title">Custom Colors</div>
                     <v-spacer></v-spacer>
-                    <v-switch v-model="config.theme.is_custom" label="Enable Custom Colors" color="primary" hide-details density="compact"></v-switch>
+                    <v-switch v-model="config.theme.is_custom" label="Enable Custom Colors" color="primary" hide-details density="compact" @update:model-value="autoSave"></v-switch>
                   </div>
 
                   <v-expand-transition>
@@ -158,7 +149,7 @@
                                  <v-spacer></v-spacer>
                                  <div class="d-flex align-center">
                                     <span class="text-caption font-mono mr-2 text-medium-emphasis">{{ config.theme[color.key] }}</span>
-                                    <input type="color" v-model="config.theme[color.key]" class="color-input">
+                                    <input type="color" v-model="config.theme[color.key]" class="color-input" @input="debouncedSave">
                                  </div>
                               </div>
                            </div>
@@ -166,10 +157,6 @@
                       </v-card>
                     </div>
                   </v-expand-transition>
-                  
-                  <div class="d-flex justify-end">
-                    <v-btn color="primary" class="px-6 text-none" min-height="45" elevation="2" @click="save">Save Theme</v-btn>
-                  </div>
                 </div>
 
                 <!-- AI Tools Editor -->
@@ -258,8 +245,9 @@
             </div>
           </div>
         </div>
-      </v-card>
+      </div>
     </div>
+  </transition>
     
     <!-- Tool Editor Dialog -->
     <v-dialog v-model="toolEditor.show" max-width="500" scrim="black opacity-80">
@@ -338,7 +326,6 @@
         </v-card>
     </v-dialog>
     
-  </v-dialog>
 </template>
 
 <script setup>
@@ -385,6 +372,8 @@ const config = ref({
 })
 const ollamaModels = ref([])
 const fetchingModels = ref(false)
+const showSaved = ref(false)
+let saveTimeout = null
 
 watch(() => props.initialConfig, (val) => {
     console.log('Settings: initialConfig changed:', val)
@@ -515,7 +504,9 @@ const colorFields = [
 function selectPreset(preset) {
     config.value.theme = { ...preset, is_custom: false }
     applyTheme(config.value.theme)
+    autoSave()
 }
+
 
 watch(() => config.value?.theme, (newTheme) => {
     if (newTheme) {
@@ -531,25 +522,90 @@ async function save() {
     try {
         await invoke('save_config', { config: config.value })
         emit('config-updated', config.value)
+        
+        // Show saved indicator
+        showSaved.value = true
+        if (saveTimeout) clearTimeout(saveTimeout)
+        saveTimeout = setTimeout(() => {
+            showSaved.value = false
+        }, 2000)
     } catch (e) {
         console.error('Failed to save config:', e)
     }
 }
+
+// Auto-save for immediate changes (dropdowns, switches)
+async function autoSave() {
+    await save()
+}
+
+// Debounced save for text inputs
+let debounceTimeout = null
+function debouncedSave() {
+    if (debounceTimeout) clearTimeout(debounceTimeout)
+    debounceTimeout = setTimeout(async () => {
+        await save()
+    }, 800)
+}
+
 </script>
 
 <style scoped>
-.settings-dialog :deep(.v-overlay__content) {
-  display: flex !important;
+/* Settings Panel Overlay */
+.settings-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 2000;
+  display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.settings-card {
-  background: rgba(30, 30, 30, 0.95) !important;
-  backdrop-filter: blur(20px);
-  display: flex;
-  flex-direction: column;
+/* Settings Panel */
+.settings-panel {
+  width: 90%;
+  max-width: 1200px;
+  height: 85vh;
+  max-height: 800px;
+  background: rgba(24, 24, 27, 0.98);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+/* Slide Transition */
+.settings-slide-enter-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.settings-slide-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 1, 1);
+}
+
+.settings-slide-enter-from {
+  opacity: 0;
+}
+
+.settings-slide-enter-from .settings-panel {
+  transform: scale(0.95) translateY(20px);
+  opacity: 0;
+}
+
+.settings-slide-leave-to {
+  opacity: 0;
+}
+
+.settings-slide-leave-to .settings-panel {
+  transform: scale(0.98) translateY(10px);
+  opacity: 0;
+}
+
 
 .settings-sidebar {
   width: 260px;
@@ -595,17 +651,83 @@ async function save() {
   border-color: rgba(var(--v-theme-primary), 0.3) !important;
 }
 
-/* Custom Inputs to look more "native" to the dark theme */
-:deep(.custom-input .v-field__outline__start),
-:deep(.custom-input .v-field__outline__end),
-:deep(.custom-input .v-field__outline__notch) {
-  border-color: rgba(255, 255, 255, 0.1) !important;
+/* Sidebar Navigation */
+.setting-nav-item {
+  position: relative;
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  margin-bottom: 4px;
 }
 
-:deep(.custom-input.v-input--is-focused .v-field__outline__start),
-:deep(.custom-input.v-input--is-focused .v-field__outline__end),
-:deep(.custom-input.v-input--is-focused .v-field__outline__notch) {
-  border-color: rgb(var(--v-theme-primary)) !important;
+.setting-nav-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.setting-nav-item:deep(.v-list-item__prepend) {
+  margin-right: 12px;
+}
+
+/* Active state: subtle left border accent */
+.setting-nav-item.v-list-item--active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.setting-nav-item.v-list-item--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 3px;
+  background: rgb(var(--v-theme-primary));
+  border-radius: 0 2px 2px 0;
+}
+
+.setting-nav-item.v-list-item--active :deep(.v-list-item-title) {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* Custom Inputs - Underlined Style */
+:deep(.custom-input .v-field__outline) {
+  display: none;
+}
+
+:deep(.custom-input .v-field__underlay) {
+  background: transparent;
+}
+
+:deep(.custom-input .v-field) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0;
+}
+
+:deep(.custom-input.v-input--is-focused .v-field) {
+  border-bottom-color: rgb(var(--v-theme-primary));
+  border-bottom-width: 2px;
+}
+
+/* Refresh Button */
+.refresh-btn {
+  transition: transform 0.3s ease;
+}
+
+.refresh-btn:hover {
+  transform: rotate(180deg);
+}
+
+/* Saved Indicator */
+.saved-indicator {
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
 }
 
 .section-title {

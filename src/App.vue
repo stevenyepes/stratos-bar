@@ -231,7 +231,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
@@ -293,7 +293,18 @@ onMounted(async () => {
   } catch (e) {
     console.error('Failed to load initial data', e)
   }
+  window.addEventListener('keydown', handleGlobalKeydown)
 })
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
+})
+
+function handleGlobalKeydown(e) {
+  if (e.key === 'Escape') {
+    handleEsc()
+  }
+}
 
 async function reloadConfig() {
   config.value = await invoke('get_config')
@@ -607,6 +618,10 @@ function closeAiChat() {
 }
 
 function handleEsc() {
+  if (showSettings.value) {
+    showSettings.value = false
+    return
+  }
   if (uiState.value === 'chatting') {
     closeAiChat()
   } else {
@@ -820,6 +835,28 @@ function getFileName(path) {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-6);
+}
+
+.message-text {
+  color: var(--theme-text);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-relaxed);
+}
+
+.message-text p {
+  margin-bottom: 0.5em;
+}
+
+.message-text p:last-child {
+  margin-bottom: 0;
+}
+
+.message-text pre {
+  margin: 0.5em 0;
+  padding: 0.5em;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.2);
+  overflow-x: auto;
 }
 
 .empty-chat {
