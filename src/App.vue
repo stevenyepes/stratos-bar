@@ -38,9 +38,17 @@
             <div v-if="matchedTool || query" class="results-section">
               <div class="section-header">AI ACTIONS</div>
               
-              <!-- Matched AI Tool/Skill -->
+              <!-- Special Result: Currency -->
+              <CurrencyResult 
+                v-if="matchedTool && matchedTool.data && matchedTool.data.type === 'currency'"
+                :data="matchedTool.data"
+                @execute="executeAction(0)"
+                @swap="swapCurrencyQuery(matchedTool.data)"
+              />
+
+              <!-- Matched AI Tool/Skill (Standard) -->
               <div 
-                v-if="matchedTool"
+                v-else-if="matchedTool"
                 class="result-item ai-action-item interactive"
                 :class="{'result-item-active': selectedIndex === 0}"
                 @click="executeAction(0)"
@@ -201,6 +209,7 @@
           <!-- Chat Input -->
           <div class="chat-input-container">
             <input
+              ref="chatInputElement"
               v-model="chatInput"
               type="text"
               placeholder="Reply to continue conversation..."
@@ -236,6 +245,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import Settings from './components/Settings.vue'
+import CurrencyResult from './components/CurrencyResult.vue'
 import SkillManager from './skills'
 import { applyTheme } from './theme'
 import { useTheme } from 'vuetify'
@@ -260,6 +270,7 @@ const config = ref(null)
 const selectedIndex = ref(0)
 const showSettings = ref(false)
 const searchInput = ref(null)
+const chatInputElement = ref(null)
 const messagesContainer = ref(null)
 
 const appWindow = getCurrentWindow()
@@ -504,6 +515,12 @@ async function executeAiTool(tool) {
     chatMessages.value.push({ role: 'user', content: prompt })
     uiState.value = 'chatting'
     updateWindowSize()
+    
+    // Focus chat input
+    nextTick(() => {
+      if (chatInputElement.value) chatInputElement.value.focus()
+    })
+
     await sendChatMessage(null, true)
   } catch(e) {
     console.error('Failed to execute tool', e)
@@ -559,6 +576,12 @@ function askAI() {
   chatMessages.value.push({ role: 'user', content: query.value })
   uiState.value = 'chatting'
   updateWindowSize()
+  
+  // Focus chat input
+  nextTick(() => {
+    if (chatInputElement.value) chatInputElement.value.focus()
+  })
+
   sendChatMessage(null, true)
 }
 
@@ -615,6 +638,11 @@ function closeAiChat() {
   chatMessages.value = []
   chatInput.value = ''
   updateWindowSize()
+  
+  // Focus back to search input
+  nextTick(() => {
+    if (searchInput.value) searchInput.value.focus()
+  })
 }
 
 function handleEsc() {
@@ -638,6 +666,17 @@ async function hideWindow() {
 
 function getFileName(path) {
   return path.split('/').pop()
+}
+
+function swapCurrencyQuery(data) {
+  if (!data) return
+  // Use the evaluated amount for the swapped query
+  query.value = `${data.amount} ${data.to} to ${data.from}`
+  
+  // Focus input
+  nextTick(() => {
+    if (searchInput.value) searchInput.value.focus()
+  })
 }
 </script>
 
