@@ -1,14 +1,16 @@
 # STV Palette
 
-A powerful AI-powered command palette for Linux, built with Tauri, Vue, and Vuetify. Features fast file search, app launching, natural language calculations, AI integration, and customizable themes.
+A modern, minimalist AI-powered command palette for Linux with a Raycast-inspired **Unified Omnibar** interface. Built with Tauri, Vue, and Vuetify.
 
 ## 🚀 Quick Overview
 
-**STV Palette** is a native Linux application that provides instant access to:
-- 🤖 **AI Assistant** (Local Ollama & Cloud OpenAI)
-- 🔍 **Fast File & App Search**
-- 🧮 **Natural Language Calculator** (with extensible skills system)
-- 🎨 **Customizable Themes** (Tokyo Night, Nord, Catppuccin, Custom)
+**STV Palette** is a native Linux application featuring a sleek, three-state UI that provides instant access to:
+- ✨ **Unified Omnibar** - Single dynamic window that adapts to your workflow
+- 🤖 **AI Assistant** (Local Ollama & Cloud OpenAI) with clean, avatar-based chat
+- 🔍 **Fast File & App Search** with gradient-highlighted AI actions
+- 🧮 **Natural Language Calculator** (extensible skills system with emoji icons)
+- 🎨 **Modern Design** - Glassmorphism, Inter/JetBrains Mono fonts, smooth animations
+- 🌊 **Three UI States** - Idle (minimal), Searching (results), Chatting (AI conversation)
 - ⌨️ **Custom Shortcuts** & AI Tools
 - 📜 **Script Execution**
 
@@ -18,6 +20,7 @@ A powerful AI-powered command palette for Linux, built with Tauri, Vue, and Vuet
 
 ## 📋 Table of Contents
 
+- [UI Design](#-ui-design)
 - [Tech Stack](#-tech-stack)
 - [Features](#-features)
 - [Architecture](#-architecture)
@@ -27,7 +30,49 @@ A powerful AI-powered command palette for Linux, built with Tauri, Vue, and Vuet
 - [Key Components](#-key-components)
 - [Skills System](#-skills-system)
 - [AI Integration](#-ai-integration)
-- [Theme System](#-theme-system)
+- [Design System](#-design-system)
+
+---
+
+## 🎨 UI Design
+
+### Unified Omnibar Concept
+
+STV Palette features a **single, dynamic window** that transforms based on your interaction, inspired by modern tools like Raycast.
+
+#### Three UI States
+
+**State 1: Idle (Minimal)**
+- Clean, floating search bar
+- Inviting placeholder: "🔍 Type a command, search files, or ask AI..."
+- "No recent items" message
+- Minimal footprint (700px × 100px)
+
+**State 2: Searching (Active)**
+- Window expands to show results (700px × 500px)
+- **AI Actions** section with electric violet/blue gradient highlights
+- Clearly labeled sections (APPLICATIONS, SCRIPTS, FILES)
+- Keyboard navigation with visible selection
+- Auto-scrolling results list
+- Settings accessible via ⚙️ icon
+
+**State 3: Chatting (AI Conversation)**
+- Full-height chat interface (700px × 600px)
+- **Avatar-based layout** (👤 You, 🤖 AI) - no boxy chat bubbles
+- Clean, plain-text messages with typography hierarchy
+- Markdown rendering with syntax-highlighted code blocks
+- Hover-revealed micro-interactions (📄 Copy, 🔄 Regenerate)
+- Back button (← Back) to return to search
+
+### Design Language
+
+- **Glassmorphism**: Subtle transparency with 20px backdrop blur
+- **Typography**: Inter (400/500/600) for UI, JetBrains Mono for code
+- **No Heavy Borders**: Background color shifts define areas
+- **Smooth Animations**: 200-300ms transitions with ease-in-out
+- **Generous Spacing**: 24px+ padding for breathing room
+- **Gradient Highlights**: AI actions stand out with electric blue/violet
+- **Emoji Icons**: 🔢 Calculator, ✏️ Rephrase, 🤖 AI Chat
 
 ---
 
@@ -38,8 +83,9 @@ A powerful AI-powered command palette for Linux, built with Tauri, Vue, and Vuet
 - **Vuetify 3** (Material Design components & theming)
 - **Vite** (Build tool & dev server)
 - **marked** (Markdown rendering with syntax highlighting)
-- **highlight.js** (Code syntax highlighting)
+- **highlight.js** (Code syntax highlighting - Atom One Dark theme)
 - **mathjs** (Math expression evaluation)
+- **Google Fonts** (Inter for UI, JetBrains Mono for code)
 
 ### Backend
 - **Tauri 2** (Rust-based native app framework)
@@ -50,6 +96,13 @@ A powerful AI-powered command palette for Linux, built with Tauri, Vue, and Vuet
   - `tauri-plugin-single-instance` - Ensure single app instance
   - `tauri-plugin-process` - Process management
   - `tauri-plugin-opener` - File/URL opening
+
+### Design System
+- **CSS Variables** - Comprehensive design tokens (colors, spacing, typography, animations)
+- **Glassmorphism** - Backdrop blur effects with subtle transparency
+- **Custom Animations** - Fade-in, scale-in, smooth transitions
+- **Responsive Typography** - Font scale from 0.75rem to 2rem
+- **4px Grid System** - Consistent spacing throughout
 
 ### Dependencies
 - **walkdir** - Recursive directory traversal
@@ -62,42 +115,49 @@ A powerful AI-powered command palette for Linux, built with Tauri, Vue, and Vuet
 
 ## ✨ Features
 
-### 1. AI Assistant
-- **Local Models**: Ollama integration with dynamic model selection
-- **Cloud Models**: OpenAI API support
-- **AI Tools**: Extensible tools with keyword triggers (e.g., "rephrase" for text improvement)
-- **Context-Aware**: Can access selected text via clipboard
-- **Markdown Chat**: Formatted responses with code highlighting
+### 1. Unified Omnibar Interface
+- **Three Dynamic States**: Idle → Searching → Chatting
+- **Gradient-Highlighted AI Actions**: Electric violet/blue for AI features
+- **Keyboard Navigation**: Arrow keys with auto-scroll and visible selection
+- **Smooth State Transitions**: 200-300ms animations between states
+- **Adaptive Window Sizing**: Automatic height adjustment per state
 
-### 2. Application Launcher
+### 2. AI Assistant
+- **Avatar-Based Chat**: Clean 👤/🤖 layout instead of chat bubbles
+- **Markdown Rendering**: Formatted responses with code highlighting
+- **Hover Micro-Interactions**: Copy & Regenerate buttons appear on hover
+- **Context-Aware**: Can access selected text via clipboard
+- **Streaming Support**: Real-time response display with typing indicator
+
+### 3. Application Launcher
 - Scans `.desktop` files from `/usr/share/applications` and `~/.local/share/applications`
 - Icon resolution from `/usr/share/icons`, `/usr/share/pixmaps`
 - Fast fuzzy search by app name or executable
 
-### 3. File Search
+### 4. File Search
 - Real-time file search with debouncing (300ms)
 - Configurable home directory search
 - Quick file opening with default applications
 
-### 4. Skills System
-- **Extensible Architecture**: Plugin-like skill registration
+### 5. Skills System
+- **Emoji Icons**: Clean visual indicators (🔢 for calculator, ✏️ for rephrase)
 - **Built-in MathSkill**:
   - Direct math expressions: `5 * 10`, `sqrt(144)`
   - Natural language: `sum of 5 and 10`, `product of 3 and 7`
   - Automatic clipboard copy on execution
 - **Easy to Extend**: See [Skills System](#-skills-system)
 
-### 5. Script Execution
+### 6. Script Execution
 - Execute custom scripts from `~/scripts/`
 - Direct integration into command palette
 
-### 6. Theme Customization
+### 7. Theme Customization
 - **Preset Themes**: Tokyo Night (default), Nord, Catppuccin Mocha
 - **Custom Themes**: Full color customization (primary, secondary, background, surface, text)
 - **CSS Variables**: Dynamic theme application
 - **Persistent**: Theme preferences saved to config
 
-### 7. Settings Management
+### 8. Settings Management
 - Modern, glassmorphic settings UI
 - Persistent configuration in `~/.config/stv-palette/config.json`
 - Dynamic Ollama model fetching
@@ -309,38 +369,35 @@ npm run tauri build
 
 ## 🔑 Key Components
 
-### App.vue
+### App.vue (Unified Omnibar)
 
-**Responsibilities:**
-- Main search interface
-- Query matching logic (tools, apps, files, skills)
-- Window resizing based on content & AI chat state
-- Keyboard navigation (Up/Down/Enter/Esc)
-- Integration with Settings & AiChat components
+**Architecture:**
+- **Single Component Design**: All UI states managed in one component
+- **State Management**: `uiState` ref controls UI mode ('idle', 'searching', 'chatting')
+- **Integrated Chat**: Chat functionality built-in (no separate AiChat component)
+- **Dynamic Sizing**: Window adapts based on current state
+
+**Key Features:**
+- **Three UI States**:
+  - Idle: Minimal search bar (100px height)
+  - Searching: Expanded results view (500px height)  
+  - Chatting: Full chat interface (600px height)
+- **Keyboard Navigation**: Arrow keys with `scrollIntoView` for auto-scroll
+- **Gradient AI Highlights**: `.ai-action-item` class with electric blue/violet
+- **Avatar-Based Chat**: Emoji avatars (👤/🤖) instead of chat bubbles
 
 **Key Computed Properties:**
 - `matchedTool` - Determines if query matches a skill, AI tool, or app shortcut
-- `filteredApps` - Apps matching search query
+- `filteredApps` - Apps matching search query (limit 5)
 - `filteredScripts` - Scripts matching search query
+- `totalItems` - Count for keyboard navigation
 
 **Key Methods:**
-- `executeAction(index)` - Route to appropriate handler based on selection
-- `updateWindowSize(expanded)` - Dynamic window resizing with monitor scaling
-- `askAI()` - Open AI chat with current query
-
-### AiChat.vue
-
-**Features:**
-- Markdown rendering with `marked` + `highlight.js`
-- Code block copy-to-clipboard
-- Auto-scrolling to latest message
-- Loading states
-- Message history
-
-**Implementation Notes:**
-- Custom `marked` renderer for styled code blocks
-- Click handler for copy buttons in rendered HTML
-- `nextTick` for proper scroll timing
+- `navigateResults(direction)` - Arrow key navigation with auto-scroll
+- `executeAction(index)` - Route to appropriate handler (app/skill/AI/file)
+- `updateWindowSize()` - Dynamic sizing based on ui State and monitor scaling
+- `askAI()` - Transition to chatting state
+- `sendChatMessage()` - Handle chat interaction with markdown rendering
 
 ### Settings.vue
 
@@ -464,7 +521,45 @@ skillManager.register(MySkill)
 
 ---
 
-## 🎨 Theme System
+## 🎨 Design System
+
+### Modern UI Architecture
+
+**File**: `/src/styles/design-system.css` - Comprehensive design tokens loaded globally
+
+**Key Features**:
+- CSS Variables for all design tokens
+- Glassmorphism utilities (`.glass-primary`, `.glass-hover`)
+- Animation keyframes (`fade-in`, `scale-in`, `typing`)
+- Custom scrollbar styling
+- Typography and spacing scales
+
+### Design Tokens
+
+**Typography:**
+- Primary: `Inter` (400/500/600) - Clean, modern UI font
+- Monospace: `JetBrains Mono` (400) - Code blocks
+- Font scale: 0.75rem (xs) → 2rem (2xl)
+
+**Colors** (Tokyo Night default):
+```css
+--theme-primary: #7aa2f7        /* Electric blue */
+--theme-secondary: #bb9af7      /* Violet */  
+--theme-background: #1a1b26     /* Dark blue-gray */
+--theme-surface: #24283b        /* Surface */
+--theme-text: #c0caf5          /* Light text */
+--gradient-ai: linear-gradient(135deg, #7aa2f7, #bb9af7)
+```
+
+**Spacing (4px grid):** `space-1` (4px) → `space-12` (48px)
+
+**Border Radius:** `radius-sm` (6px) → `radius-2xl` (24px) + `radius-full`
+
+**Animations:**
+- Durations: Fast (150ms), Normal (200ms), Slow (300ms)
+- Easings: `cubic-bezier(0.4, 0, 0.2, 1)` for smooth motion
+
+### Theme System (Legacy Compatible)
 
 ### Architecture
 

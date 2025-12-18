@@ -91,7 +91,7 @@ impl ConfigManager {
                  description: "Improve clarity and grammar".to_string(),
                  prompt_template: "Identity the language of the following text and rephrase it to improve clarity and grammar. Return ONLY the improved text wrapped in a markdown code block (using ```text or the appropriate language). Do not add any conversational text.\n\nText:\n{{selection}}".to_string(),
                  keywords: vec!["rephrase".to_string(), "rewrite".to_string(), "fix".to_string(), "improve".to_string()],
-                 icon: "mdi-pencil-outline".to_string()
+                 icon: "✏️".to_string()
              });
         }
 

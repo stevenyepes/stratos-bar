@@ -4,7 +4,7 @@ export const MathSkill = {
     id: 'builtin-math',
     name: 'Calculator',
     description: 'Calculate math expressions',
-    icon: 'mdi-calculator',
+    icon: '🔢',
 
     match(query) {
         // 1. Direct Math Check (e.g. "2+2", "5 * 10")
