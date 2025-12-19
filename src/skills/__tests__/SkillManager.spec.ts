@@ -4,7 +4,7 @@ import { SkillManager } from '../SkillManager'
 // Mock Skill
 const MockSkill = {
     id: 'mock-skill',
-    match(query) {
+    match(query: string) {
         if (query === 'test') return { score: 1.0, data: 'test-data' }
         if (query === 'maybe') return { score: 0.4, data: 'low-score' }
         return null

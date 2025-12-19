@@ -3,5 +3,5 @@
 
 fn main() {
     std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-    stv_palette_lib::run()
+    stratos_bar_lib::run()
 }

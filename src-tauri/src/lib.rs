@@ -1,8 +1,12 @@
 use ksni;
+use std::collections::HashMap;
 use std::io::Write;
+use std::sync::{Mutex, OnceLock};
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 use walkdir::WalkDir;
+
+static ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
 
 // Public for testing, or just use within module
 fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
@@ -43,11 +47,11 @@ impl ksni::Tray for PaletteTray {
     }
 
     fn id(&self) -> String {
-        "stv-palette".to_string()
+        "stratos-bar".to_string()
     }
 
     fn title(&self) -> String {
-        "stv-palette".to_string()
+        "stratos-bar".to_string()
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
@@ -96,6 +100,14 @@ fn greet(name: &str) -> String {
 struct AppEntry {
     name: String,
     exec: String,
+    icon: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct WindowEntry {
+    title: String,
+    class: String,
+    address: String,
     icon: Option<String>,
 }
 
@@ -321,10 +333,73 @@ async fn list_apps() -> Result<Vec<AppEntry>, String> {
     Ok(apps)
 }
 
+#[tauri::command]
+fn list_windows() -> Result<Vec<WindowEntry>, String> {
+    let output = std::process::Command::new("hyprctl")
+        .arg("clients")
+        .arg("-j")
+        .output()
+        .map_err(|e| format!("Failed to execute hyprctl: {}", e))?;
+
+    if !output.status.success() {
+        return Err("hyprctl failed".to_string());
+    }
+
+    let clients: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse hyprctl output: {}", e))?;
+
+    let windows = clients
+        .into_iter()
+        .map(|client| {
+            let class = client["class"].as_str().unwrap_or("").to_string();
+            let title = client["title"].as_str().unwrap_or("").to_string();
+            let address = client["address"].as_str().unwrap_or("").to_string();
+            let icon = resolve_icon(&class.to_lowercase());
+
+            WindowEntry {
+                title,
+                class,
+                address,
+                icon,
+            }
+        })
+        .collect();
+
+    Ok(windows)
+}
+
+#[tauri::command]
+fn focus_window(address: String) -> Result<(), String> {
+    let output = std::process::Command::new("hyprctl")
+        .arg("dispatch")
+        .arg("focuswindow")
+        .arg(format!("address:{}", address))
+        .output()
+        .map_err(|e| format!("Failed to execute hyprctl: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Failed to focus window".to_string());
+    }
+
+    Ok(())
+}
+
 fn resolve_icon(icon_name: &str) -> Option<String> {
+    // 0. Check Cache
+    let cache = ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = cache.lock() {
+        if let Some(cached_result) = guard.get(icon_name) {
+            return cached_result.clone();
+        }
+    }
+
     let path = std::path::Path::new(icon_name);
     if path.is_absolute() && path.exists() {
-        return Some(icon_name.to_string());
+        let result = Some(icon_name.to_string());
+        if let Ok(mut guard) = cache.lock() {
+            guard.insert(icon_name.to_string(), result.clone());
+        }
+        return result;
     }
 
     let mut search_paths = vec![
@@ -343,7 +418,11 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
         for ext in &extensions {
             let p = std::path::Path::new(base).join(format!("{}.{}", icon_name, ext));
             if p.exists() {
-                return Some(p.to_string_lossy().to_string());
+                let result = Some(p.to_string_lossy().to_string());
+                if let Ok(mut guard) = cache.lock() {
+                    guard.insert(icon_name.to_string(), result.clone());
+                }
+                return result;
             }
         }
     }
@@ -364,7 +443,11 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
                             let ext_str = ext.to_string_lossy();
                             if extensions.contains(&ext_str.as_ref()) {
                                 println!("Resolved icon {} to {:?}", icon_name, p);
-                                return Some(p.to_string_lossy().to_string());
+                                let result = Some(p.to_string_lossy().to_string());
+                                if let Ok(mut guard) = cache.lock() {
+                                    guard.insert(icon_name.to_string(), result.clone());
+                                }
+                                return result;
                             }
                         }
                     }
@@ -374,6 +457,9 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
     }
 
     println!("Failed to resolve icon: {}", icon_name);
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(icon_name.to_string(), None);
+    }
     None
 }
 
@@ -487,6 +573,8 @@ async fn copy_to_clipboard(text: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -546,7 +634,9 @@ pub fn run() {
             list_scripts,
             list_ollama_models,
             get_selection_context,
-            copy_to_clipboard
+            copy_to_clipboard,
+            list_windows,
+            focus_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

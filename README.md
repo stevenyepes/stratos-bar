@@ -1,10 +1,10 @@
-# STV Palette
+# StratosBar
 
 A modern, minimalist AI-powered command palette for Linux with a Raycast-inspired **Unified Omnibar** interface. Built with Tauri, Vue, and Vuetify.
 
 ## 🚀 Quick Overview
 
-**STV Palette** is a native Linux application featuring a sleek, three-state UI that provides instant access to:
+**StratosBar** is a native Linux application featuring a sleek, three-state UI that provides instant access to:
 - ✨ **Unified Omnibar** - Single dynamic window that adapts to your workflow
 - 🤖 **AI Assistant** (Local Ollama & Cloud OpenAI) with clean, avatar-based chat
 - 🔍 **Fast File & App Search** with gradient-highlighted AI actions
@@ -38,7 +38,7 @@ A modern, minimalist AI-powered command palette for Linux with a Raycast-inspire
 
 ### Unified Omnibar Concept
 
-STV Palette features a **single, dynamic window** that transforms based on your interaction, inspired by modern tools like Raycast.
+StratosBar features a **single, dynamic window** that transforms based on your interaction, inspired by modern tools like Raycast.
 
 #### Three UI States
 
@@ -159,7 +159,7 @@ STV Palette features a **single, dynamic window** that transforms based on your 
 
 ### 8. Settings Management
 - Modern, glassmorphic settings UI
-- Persistent configuration in `~/.config/stv-palette/config.json`
+- Persistent configuration in `~/.config/stratos-bar/config.json`
 - Dynamic Ollama model fetching
 - Keyboard shortcuts configuration
 - Theme selection & opacity control
@@ -218,7 +218,7 @@ graph TB
 1. **config.rs** - Configuration management
    - `AppConfig` struct (API keys, models, tools, shortcuts, theme)
    - `ThemeConfig` struct (color schemes)
-   - `ConfigManager` (load/save to `~/.config/stv-palette/config.json`)
+   - `ConfigManager` (load/save to `~/.config/stratos-bar/config.json`)
 
 2. **lib.rs** - Tauri commands (invokable from frontend):
    - `list_apps()` - Parse `.desktop` files
@@ -241,7 +241,7 @@ graph TB
 ## 📁 Project Structure
 
 ```
-stv-palette/
+stratos-bar/
 ├── src/                          # Frontend (Vue)
 │   ├── App.vue                   # Main application UI
 │   ├── main.js                   # Vue app initialization
@@ -275,7 +275,7 @@ stv-palette/
 ## ⚙ Configuration
 
 ### Config File Location
-`~/.config/stv-palette/config.json`
+`~/.config/stratos-bar/config.json`
 
 ### Config Structure
 
@@ -338,7 +338,7 @@ stv-palette/
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd stv-palette
+cd stratos-bar
 
 # Install frontend dependencies
 npm install
@@ -614,24 +614,24 @@ Used in `App.vue` and `AiChat.vue` styles.
 
 ### Hyprland Configuration
 
-To seamlessly integrate STV Palette with Hyprland, add the following rules to your `hyprland.conf`.
+To seamlessly integrate StratosBar with Hyprland, add the following rules to your `hyprland.conf`.
 
 #### 1. Window Rules
 These rules ensure the app floats, stays centered, and looks clean without borders.
 
 ```ini
 # Float the window
-windowrulev2 = float, class:^(stv-palette|Stv-palette|STV Palette)$
+windowrulev2 = float, class:^(stratos-bar|StratosBar)$
 
 # Center it on screen
-windowrulev2 = center, class:^(stv-palette|Stv-palette|STV Palette)$
+windowrulev2 = center, class:^(stratos-bar|StratosBar)$
 
 # Remove borders
-windowrulev2 = noborder, class:^(stv-palette|Stv-palette|STV Palette)$
+windowrulev2 = noborder, class:^(stratos-bar|StratosBar)$
 
 # Keep it focused and on top (like a launcher should)
-windowrulev2 = stayfocused, class:^(stv-palette|Stv-palette|STV Palette)$
-windowrulev2 = pin, class:^(stv-palette|Stv-palette|STV Palette)$
+windowrulev2 = stayfocused, class:^(stratos-bar|StratosBar)$
+windowrulev2 = pin, class:^(stratos-bar|StratosBar)$
 ```
 
 #### 2. Opacity Control
@@ -639,14 +639,18 @@ You can manage the window transparency directly through window rules:
 
 ```ini
 # Set active and inactive opacity (e.g., 0.9)
-windowrulev2 = opacity 0.9 0.9, class:^(stv-palette|Stv-palette|STV Palette)$
+windowrulev2 = opacity 0.9 0.9, class:^(stratos-bar|StratosBar)$
 ```
 
 #### 3. Animations (Optional)
 Add a smooth slide-in animation for the launcher:
 
 ```ini
-windowrulev2 = animation slide, class:^(stv-palette)$
+# Animation
+windowrulev2 = animation slide, class:^(stratos-bar|StratosBar)$
+
+# Dim around the window (optional, makes it pop)
+windowrulev2 = dimaround, class:^(stratos-bar|StratosBar)$
 ```
 
 #### 4. Launch Keybinding
@@ -654,7 +658,7 @@ Bind a key (usually Super+Space) to execute the AppImage or binary.
 
 ```ini
 # Replace with the actual path to your AppImage or binary
-bind = $mainMod, SPACE, exec, /path/to/stv-palette_0.1.0_amd64.AppImage
+bind = $mainMod, SPACE, exec, /path/to/stratos-bar_0.1.0_amd64.AppImage
 ```
 
 ---
@@ -674,7 +678,7 @@ bind = $mainMod, SPACE, exec, /path/to/stv-palette_0.1.0_amd64.AppImage
 - Verify single instance isn't blocking
 
 ### Settings Not Persisting
-- Check file permissions: `~/.config/stv-palette/config.json`
+- Check file permissions: `~/.config/stratos-bar/config.json`
 - Verify `save_config` is called after changes
 
 ---

@@ -78,7 +78,7 @@ pub struct ConfigManager;
 
 impl ConfigManager {
     pub fn get_config_dir() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("stv-palette"))
+        dirs::config_dir().map(|p| p.join("stratos-bar"))
     }
 
     pub fn load_config() -> AppConfig {

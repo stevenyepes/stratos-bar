@@ -22,13 +22,27 @@
               @keydown.up.prevent="navigateResults(-1)"
               @keydown.enter.prevent="executeAction(selectedIndex)"
               @keydown.esc="handleEsc"
+              @keydown.ctrl.n.prevent="askAI"
             />
           </div>
 
-          <!-- State 1: Empty state -->
-          <div v-if="!query" class="empty-state">
-            <p class="text-dimmer">No recent items</p>
-            <p class="text-dimmer text-xs mt-2">[esc] to close</p>
+          <!-- State 1: Empty state (Default Items) -->
+          <div v-if="!query" class="results-container custom-scrollbar fade-in">
+             <div class="results-section">
+               <div class="section-header">SUGGESTED</div>
+               <div 
+                 class="result-item glass-hover interactive"
+                 :class="{'result-item-active': selectedIndex === 0}"
+                 @click="showSettings = true"
+               >
+                 <div class="result-icon">⚙️</div>
+                 <div class="result-content">
+                   <div class="result-title">Settings</div>
+                   <div class="result-subtitle text-dim">Configure appearance, shortcuts, and AI</div>
+                 </div>
+                 <div class="result-hint text-dimmer">[↵]</div>
+               </div>
+             </div>
           </div>
 
           <!-- State 2: Results -->
@@ -73,7 +87,28 @@
                   <div class="result-title text-gradient">Ask AI: "{{ query }}"</div>
                   <div class="result-subtitle text-dim">Get instant answers</div>
                 </div>
-                <div class="result-hint text-dimmer">[↵]</div>
+                <div class="result-hint text-dimmer"><span class="mr-2 text-xs opacity-70">[Ctrl+N]</span> [↵]</div>
+              </div>
+            </div>
+
+            <!-- Open Windows -->
+            <div v-if="filteredWindows.length" class="results-section">
+              <div class="section-header">OPEN APPS</div>
+              <div
+                v-for="(win, index) in filteredWindows"
+                :key="'win-'+index"
+                class="result-item glass-hover interactive"
+                :class="{'result-item-active': selectedIndex === (1 + index)}"
+                @click="focusWindow(win)"
+              >
+                <div class="result-icon">
+                  <img v-if="win.icon" :src="convertFileSrc(win.icon)" width="24" height="24" />
+                  <span v-else>🔲</span>
+                </div>
+                <div class="result-content">
+                  <div class="result-title">{{ win.title }}</div>
+                  <div class="result-subtitle text-dim">Switch to {{ win.class }}</div>
+                </div>
               </div>
             </div>
 
@@ -84,7 +119,7 @@
                 v-for="(app, index) in filteredApps"
                 :key="'app-'+index"
                 class="result-item glass-hover interactive"
-                :class="{'result-item-active': selectedIndex === (1 + index)}"
+                :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + index)}"
                 @click="executeApp(app)"
               >
                 <div class="result-icon">
@@ -105,7 +140,7 @@
                 v-for="(script, index) in filteredScripts"
                 :key="'script-'+index"
                 class="result-item glass-hover interactive"
-                :class="{'result-item-active': selectedIndex === (1 + filteredApps.length + index)}"
+                :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + filteredApps.length + index)}"
                 @click="executeScript(script)"
               >
                 <div class="result-icon">📜</div>
@@ -123,7 +158,7 @@
                 v-for="(file, index) in files"
                 :key="'file-'+index"
                 class="result-item glass-hover interactive"
-                :class="{'result-item-active': selectedIndex === (1 + filteredApps.length + filteredScripts.length + index)}"
+                :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + filteredApps.length + filteredScripts.length + index)}"
                 @click="executeFile(file)"
               >
                 <div class="result-icon">📄</div>
@@ -139,7 +174,7 @@
           <div v-if="uiState === 'searching'" class="footer">
             <button class="footer-btn interactive" @click="showSettings = true">
               <span>⚙️</span>
-              <span class="text-dimmer">[⇧⌘P]</span>
+              <span class="text-dimmer">[Ctrl+,]</span>
             </button>
           </div>
         </div>
@@ -264,6 +299,7 @@ const chatLoading = ref(false)
 
 // Data
 const apps = ref([])
+const windows = ref([])
 const files = ref([])
 const scripts = ref([])
 const config = ref(null)
@@ -297,15 +333,37 @@ marked.use({ renderer })
 // Load initial data
 onMounted(async () => {
   try {
-    apps.value = await invoke('list_apps')
-    scripts.value = await invoke('list_scripts')
-    await reloadConfig()
+    // 1. Resize and show window immediately for perceived performance
     await updateWindowSize()
+    await appWindow.show()
+    await appWindow.setFocus()
+
+    // 2. Load heavy data in background
+    loadData()
   } catch (e) {
-    console.error('Failed to load initial data', e)
+    console.error('Failed to initialize', e)
+    // Ensure window shows even if something fails
+    await appWindow.show()
   }
   window.addEventListener('keydown', handleGlobalKeydown)
 })
+
+async function loadData() {
+  try {
+    // Load config first for theme
+    await reloadConfig()
+    
+    // Load lists in parallel
+    const [appsList, scriptsList] = await Promise.all([
+      invoke('list_apps'),
+      invoke('list_scripts')
+    ])
+    apps.value = appsList
+    scripts.value = scriptsList
+  } catch (e) {
+    console.error('Failed to load data', e)
+  }
+}
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
@@ -314,6 +372,11 @@ onUnmounted(() => {
 function handleGlobalKeydown(e) {
   if (e.key === 'Escape') {
     handleEsc()
+  }
+  
+  if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+    e.preventDefault()
+    showSettings.value = true
   }
 }
 
@@ -334,9 +397,39 @@ function handleConfigUpgrade(newConfig) {
 
 // Watch query to update UI state
 watch(query, (newVal) => {
-  selectedIndex.value = 0
+  // Smart selection logic:
+  // If we have a specific tool, select it (index 0).
+  // If we have generic AI (matchedTool is null) but we have apps/scripts, select the first app (index 1).
+  // Otherwise default to 0.
+  if (matchedTool.value) {
+     selectedIndex.value = 0
+  } else {
+     // Check if we will have other results
+     // Note: filteredApps depends on query, so we can re-evaluate or just trust the next tick? 
+     // Actuallly filteredApps is computed based on query. Since we are in watch(query), 
+     // the computed props might not have updated yet if we access them synchronously?
+     // Vue's reactivity system: synchronous access to computed props inside a watcher *should* reflect the new state 
+     // if the dependency (query) was just updated.
+      const hasWindows = windows.value.some(w => 
+          w.title.toLowerCase().includes(newVal.toLowerCase()) || 
+          w.class.toLowerCase().includes(newVal.toLowerCase())
+      );
+      const hasApps = apps.value.some(app => 
+          app.name.toLowerCase().includes(newVal.toLowerCase()) || 
+          app.exec.toLowerCase().includes(newVal.toLowerCase())
+      );
+      const hasScripts = scripts.value.some(s => s.toLowerCase().includes(newVal.toLowerCase()));
+      
+      if (hasWindows || hasApps || hasScripts) {
+          selectedIndex.value = 1
+      } else {
+          selectedIndex.value = 0
+      }
+  }
+
   if (newVal && uiState.value === 'idle') {
     uiState.value = 'searching'
+    invoke('list_windows').then(w => windows.value = w).catch(e => console.error(e))
     updateWindowSize()
   } else if (!newVal && uiState.value === 'searching') {
     uiState.value = 'idle'
@@ -344,17 +437,38 @@ watch(query, (newVal) => {
   }
   
   // File search
-  if (!newVal) {
+  if (!newVal || !newVal.toLowerCase().startsWith('ff ')) {
     files.value = []
   } else {
+    const fileQuery = newVal.substring(3).trim()
+    if (!fileQuery) {
+        files.value = []
+        return
+    }
     clearTimeout(window.searchTimeout)
     window.searchTimeout = setTimeout(async () => {
       try {
-        files.value = await invoke('search_files', { query: newVal, path: '/home/jsteven' })
+        files.value = await invoke('search_files', { query: fileQuery, path: '/home/jsteven' })
       } catch (e) {
         console.error(e)
       }
     }, 300)
+  }
+})
+
+// Watch files to update selection when async results arrive
+watch(files, (newFiles) => {
+  // If we have files, and we are currently selecting the Generic AI (index 0)
+  // because we didn't have apps/scripts, we should now switch to the first file (index 1).
+  if (newFiles.length > 0 && selectedIndex.value === 0 && !matchedTool.value) {
+     const hasWindows = filteredWindows.value.length > 0
+     const hasApps = filteredApps.value.length > 0
+     const hasScripts = filteredScripts.value.length > 0
+     
+     // Only switch if we don't have other items earlier in the list (which would have already been selected)
+     if (!hasWindows && !hasApps && !hasScripts) {
+         selectedIndex.value = 1
+     }
   }
 })
 
@@ -366,14 +480,22 @@ const BASE_WIDTH = 700
 
 async function updateWindowSize() {
   try {
-    const monitor = await currentMonitor()
     let width = BASE_WIDTH
     let height = COLLAPSED_HEIGHT
+    
+    // Try Tauri monitor API first
+    const monitor = await currentMonitor()
     
     if (monitor) {
       const scaleFactor = monitor.scaleFactor
       const screenWidth = monitor.size.width / scaleFactor
       width = Math.max(BASE_WIDTH, Math.floor(screenWidth * 0.4))
+    } else {
+      // Fallback to Web API if Tauri monitor fails (happens sometimes in early startup)
+      const webScreenWidth = window.screen.width
+      if (webScreenWidth) {
+        width = Math.max(BASE_WIDTH, Math.floor(webScreenWidth * 0.4))
+      }
     }
     
     if (uiState.value === 'chatting') {
@@ -382,7 +504,17 @@ async function updateWindowSize() {
       height = EXPANDED_HEIGHT
     }
     
+    
     await appWindow.setSize(new LogicalSize(width, height))
+    
+    // Restore focus after resize reduces "type twice" bugs
+    // Increased delay to 150ms to be safe against slower WMs
+    if (uiState.value === 'searching' || uiState.value === 'idle') {
+      setTimeout(async () => {
+        searchInput.value?.focus()
+        await appWindow.setFocus() // Force window focus again
+      }, 150)
+    }
   } catch (e) {
     console.error('Failed to resize window:', e)
   }
@@ -435,7 +567,29 @@ const matchedTool = computed(() => {
     }
   }
   
+  // Check for settings keyword
+  if ('settings'.includes(q) && q.length > 1) {
+    return {
+      type: 'internal',
+      id: 'settings',
+      name: 'Open Settings',
+      description: 'Configure appearance, shortcuts, and AI',
+      icon: '⚙️'
+    }
+  }
+
   return null
+})
+
+// Default items logic
+const isDefaultState = computed(() => !query.value)
+
+const filteredWindows = computed(() => {
+  if (!query.value) return []
+  return windows.value.filter(w => 
+    w.title.toLowerCase().includes(query.value.toLowerCase()) ||
+    w.class.toLowerCase().includes(query.value.toLowerCase())
+  ).slice(0, 5)
 })
 
 const filteredApps = computed(() => {
@@ -451,7 +605,10 @@ const filteredScripts = computed(() => {
   return scripts.value.filter(s => s.toLowerCase().includes(query.value.toLowerCase()))
 })
 
-const totalItems = computed(() => 1 + filteredApps.value.length + filteredScripts.value.length + files.value.length)
+const totalItems = computed(() => {
+  if (isDefaultState.value) return 1
+  return 1 + filteredWindows.value.length + filteredApps.value.length + filteredScripts.value.length + files.value.length
+})
 
 function navigateResults(direction) {
   const max = totalItems.value - 1
@@ -471,12 +628,21 @@ function navigateResults(direction) {
 }
 
 async function executeAction(index) {
+  if (isDefaultState.value) {
+    if (index === 0) {
+      showSettings.value = true
+    }
+    return
+  }
+
   if (index === 0) {
     if (matchedTool.value) {
       if (matchedTool.value.type === 'app') {
         await executeApp(matchedTool.value.data)
       } else if (matchedTool.value.type === 'skill') {
         await executeSkill(matchedTool.value)
+      } else if (matchedTool.value.type === 'internal' && matchedTool.value.id === 'settings') {
+        showSettings.value = true
       } else {
         executeAiTool(matchedTool.value)
       }
@@ -487,6 +653,12 @@ async function executeAction(index) {
   }
   
   let currentIndex = 1
+  if (index < currentIndex + filteredWindows.value.length) {
+    await focusWindow(filteredWindows.value[index - currentIndex])
+    return
+  }
+  currentIndex += filteredWindows.value.length
+
   if (index < currentIndex + filteredApps.value.length) {
     await executeApp(filteredApps.value[index - currentIndex])
     return
@@ -501,6 +673,15 @@ async function executeAction(index) {
   
   if (files.value[index - currentIndex]) {
     executeFile(files.value[index - currentIndex])
+  }
+}
+
+async function focusWindow(win) {
+  try {
+    await invoke('focus_window', { address: win.address })
+    await hideWindow()
+  } catch(e) {
+    console.error('Failed to focus window', e)
   }
 }
 

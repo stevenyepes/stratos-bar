@@ -1,8 +1,17 @@
 {
-  "name": "stv-palette",
+  "name": "stratos-bar",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "author": "Steven Yepes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/stratos-bar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/stratos-bar/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -14,6 +23,8 @@
     "@mdi/font": "^7.4.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-dialog": "^2.4.2",
+    "@tauri-apps/plugin-fs": "^2.4.4",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "highlight.js": "^11.11.1",
     "marked": "^17.0.1",

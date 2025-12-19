@@ -61,7 +61,7 @@ export const CurrencySkill = {
         // If we don't have rates, we can't show the calculation in preview immediately 
         // unless we make match async or have separate 'resolve' phase.
         // For now, we rely on the fact that we might have rates or we return a "loading" state object.
-        // STV Palette architecture seems to assume match is sync.
+        // StratosBar architecture seems to assume match is sync.
 
         // Check if we have valid rates in cache to provide immediate answer
         const now = Date.now()
