@@ -346,6 +346,7 @@ onMounted(async () => {
     await appWindow.show()
   }
   window.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('reload-config', reloadConfig)
 })
 
 async function loadData() {
@@ -367,6 +368,7 @@ async function loadData() {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('reload-config', reloadConfig)
 })
 
 function handleGlobalKeydown(e) {

@@ -132,6 +132,31 @@
                        <div class="pa-2 text-center text-caption font-weight-bold">{{ preset.name }}</div>
                     </v-card>
                   </div>
+                  
+                  <div class="section-title mb-2">Dynamic Theme</div>
+                  <v-card 
+                    class="mb-6 border-thin setting-section-card" 
+                    :class="{ 'active': config.theme?.is_custom && config.theme?.source_image }"
+                    flat 
+                    @click="generateFromWallpaper" 
+                    v-ripple
+                  >
+                    <div class="d-flex align-center pa-3">
+                         <v-avatar color="primary" variant="tonal" rounded size="36" class="mr-3">
+                             <v-icon :icon="config.theme?.source_image ? 'mdi-image-check' : 'mdi-palette-swatch-outline'" size="20"></v-icon>
+                         </v-avatar>
+                         <div>
+                             <div class="text-body-2 font-weight-bold">
+                                {{ config.theme?.source_image ? 'Generated from Image' : 'Generate from Image' }}
+                             </div>
+                             <div class="text-caption text-medium-emphasis">
+                                {{ config.theme?.source_image ? `Source: ${config.theme.source_image}` : 'Use Matugen to generate colors from a file' }}
+                             </div>
+                         </div>
+                         <v-spacer></v-spacer>
+                         <v-icon :icon="config.theme?.source_image ? 'mdi-check' : 'mdi-chevron-right'" size="small" class="text-medium-emphasis"></v-icon>
+                    </div>
+                  </v-card>
 
                   <div class="d-flex align-center mb-4">
                     <div class="section-title">Custom Colors</div>
@@ -333,6 +358,7 @@ import { ref, watch, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { themePresets, applyTheme } from '../theme'
 import { useTheme } from 'vuetify'
+import { MatugenSkill } from '../skills/builtin/MatugenSkill'
 
 const vTheme = useTheme()
 
@@ -500,6 +526,18 @@ const colorFields = [
     { label: 'Surface', key: 'surface' },
     { label: 'Text', key: 'text' }
 ]
+
+async function generateFromWallpaper() {
+    try {
+        const result = await MatugenSkill.execute({})
+        if (result && typeof result === 'string') {
+             showSaved.value = true
+             setTimeout(() => showSaved.value = false, 2000)
+        }
+    } catch(e) {
+        console.error('Failed to generate theme', e)
+    }
+}
 
 function selectPreset(preset) {
     config.value.theme = { ...preset, is_custom: false }

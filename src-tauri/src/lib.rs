@@ -19,13 +19,13 @@ fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
         .replace("%c", "")
         .replace("%k", "");
 
-    let parts: Vec<&str> = cleaned.trim().split_whitespace().collect();
+    let parts = shell_words::split(&cleaned).ok()?;
     if parts.is_empty() {
         return None;
     }
 
-    let cmd = parts[0].to_string();
-    let args = parts[1..].iter().map(|s| s.to_string()).collect();
+    let cmd = parts[0].clone();
+    let args = parts[1..].to_vec();
     Some((cmd, args))
 }
 
