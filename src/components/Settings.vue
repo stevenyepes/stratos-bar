@@ -572,11 +572,12 @@ function debouncedSave() {
   max-width: 1200px;
   height: 85vh;
   max-height: 800px;
-  background: rgba(24, 24, 27, 0.98);
+  background: var(--theme-background, #18181b);
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--theme-text, #ffffff);
 }
 
 /* Slide Transition */
