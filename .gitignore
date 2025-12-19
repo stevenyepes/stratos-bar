@@ -30,8 +30,11 @@ Thumbs.db
 *.sw?
 
 # Makepkg artifacts
-src/
-pkg/
+
+# pkg/ # Unignore pkg directory to allow version tracking of build scripts
+pkg/arch/src/
+pkg/arch/pkg/
+pkg/arch/stratos-bar/
 *.pkg.tar.zst
 *.pkg.tar.xz
 *.src.tar.gz

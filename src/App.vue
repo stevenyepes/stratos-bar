@@ -925,7 +925,8 @@ function swapCurrencyQuery(data) {
 }
 
 .results-container {
-  max-height: 380px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0 var(--space-4) var(--space-4);
 }
@@ -1001,6 +1002,7 @@ function swapCurrencyQuery(data) {
 }
 
 .footer {
+  flex-shrink: 0;
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--theme-border);
   display: flex;
