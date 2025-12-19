@@ -269,6 +269,7 @@ async fn open_entity(path: String) -> Result<(), String> {
 #[tauri::command]
 async fn list_apps() -> Result<Vec<AppEntry>, String> {
     let mut apps = Vec::new();
+
     let mut paths = vec![
         std::path::PathBuf::from("/usr/share/applications"),
         std::path::PathBuf::from("/usr/local/share/applications"),
@@ -280,10 +281,9 @@ async fn list_apps() -> Result<Vec<AppEntry>, String> {
 
     for path in paths {
         if !path.exists() {
-            println!("App path does not exist: {:?}", path);
             continue;
         }
-        println!("Scanning app path: {:?}", path);
+
         for entry in WalkDir::new(path)
             .max_depth(1)
             .into_iter()
@@ -322,13 +322,12 @@ async fn list_apps() -> Result<Vec<AppEntry>, String> {
                                 icon: icon_path,
                             });
                         }
-                    } else {
-                        // println!("Skipping hidden app: {:?}", p);
                     }
                 }
             }
         }
     }
+
     println!("Found {} apps", apps.len());
     Ok(apps)
 }
@@ -404,11 +403,30 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
 
     let mut search_paths = vec![
         "/usr/share/pixmaps".to_string(),
+        "/usr/share/icons/hicolor/48x48/apps".to_string(),
+        "/usr/share/icons/hicolor/128x128/apps".to_string(),
+        "/usr/share/icons/hicolor/256x256/apps".to_string(),
+        "/usr/share/icons/hicolor/scalable/apps".to_string(),
         "/usr/share/icons".to_string(),
     ];
 
     if let Some(home) = dirs::data_local_dir() {
         search_paths.push(home.join("icons").to_string_lossy().to_string());
+        search_paths.push(
+            home.join("icons/hicolor/48x48/apps")
+                .to_string_lossy()
+                .to_string(),
+        );
+        search_paths.push(
+            home.join("icons/hicolor/128x128/apps")
+                .to_string_lossy()
+                .to_string(),
+        );
+        search_paths.push(
+            home.join("icons/hicolor/scalable/apps")
+                .to_string_lossy()
+                .to_string(),
+        );
     }
 
     let extensions = vec!["png", "svg", "xpm"];
@@ -423,35 +441,6 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
                     guard.insert(icon_name.to_string(), result.clone());
                 }
                 return result;
-            }
-        }
-    }
-
-    // Deep search (more expensive but finds themed icons)
-    // Limit depth to avoid scanning too much
-    for base in &search_paths {
-        for entry in WalkDir::new(base)
-            .max_depth(5)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            let p = entry.path();
-            if p.is_file() {
-                if let Some(stem) = p.file_stem() {
-                    if stem == icon_name {
-                        if let Some(ext) = p.extension() {
-                            let ext_str = ext.to_string_lossy();
-                            if extensions.contains(&ext_str.as_ref()) {
-                                println!("Resolved icon {} to {:?}", icon_name, p);
-                                let result = Some(p.to_string_lossy().to_string());
-                                if let Ok(mut guard) = cache.lock() {
-                                    guard.insert(icon_name.to_string(), result.clone());
-                                }
-                                return result;
-                            }
-                        }
-                    }
-                }
             }
         }
     }

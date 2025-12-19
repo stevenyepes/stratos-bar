@@ -11,6 +11,7 @@
     "core:window:allow-set-size",
     "core:window:allow-hide",
     "core:window:allow-show",
+    "core:window:allow-set-focus",
     "clipboard-manager:default",
     "dialog:default",
     "fs:default"

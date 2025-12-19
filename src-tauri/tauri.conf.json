@@ -30,7 +30,8 @@
           "/usr/share/icons/**/*",
           "/usr/share/pixmaps/**/*",
           "/opt/**/*",
-          "/home/**/*"
+          "/home/**/*",
+          "/home/jsteven/.local/share/icons/**/*"
         ],
         "enable": true
       }

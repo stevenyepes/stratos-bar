@@ -35,6 +35,7 @@ Thumbs.db
 pkg/arch/src/
 pkg/arch/pkg/
 pkg/arch/stratos-bar/
+pkg/stratos-bar/
 *.pkg.tar.zst
 *.pkg.tar.xz
 *.src.tar.gz
