@@ -178,6 +178,54 @@ StratosBar features a **single, dynamic window** that transforms based on your i
 
 ---
 
+## 📥 Installation
+
+StratosBar supports multiple Linux distributions. Download the latest release from the [Releases page](https://github.com/yourusername/stratos-bar/releases).
+
+### Ubuntu / Debian
+Download the `.deb` package and install:
+```bash
+sudo apt install ./stratos-bar_0.1.0_amd64.deb
+```
+
+### Fedora / RHEL
+Download the `.rpm` package and install:
+```bash
+sudo dnf install ./stratos-bar-0.1.0-1.x86_64.rpm
+```
+
+### AppImage (Universal)
+Download the `.AppImage` file, make it executable, and run:
+```bash
+chmod +x stratos-bar_0.1.0_amd64.AppImage
+./stratos-bar_0.1.0_amd64.AppImage
+```
+
+### Arch Linux
+You can build and install directly from the source using the provided `PKGBUILD`.
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/stratos-bar.git
+   cd stratos-bar
+   ```
+
+2. Navigate to the Arch package directory:
+   ```bash
+   cd pkg/arch
+   ```
+
+3. Build and install:
+   ```bash
+   # Using the convenience script
+   ./install.sh
+
+   # OR manually with makepkg
+   makepkg -si
+   ```
+
+---
+
 ## 🏗 Architecture
 
 ### Application Flow
