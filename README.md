@@ -111,6 +111,11 @@ StratosBar features a **single, dynamic window** that transforms based on your i
 - **tokio** - Async runtime
 - **open** - Cross-platform file opener
 
+### Runtime Dependencies
+- **wmctrl** - For window management on X11
+- **wlrctl** - For window management on generic Wayland (optional, if not using Hyprland)
+
+
 ---
 
 ## ✨ Features
@@ -690,7 +695,7 @@ bind = $mainMod, SPACE, exec, /path/to/stratos-bar_0.1.0_amd64.AppImage
 - [ ] Browser bookmark integration
 - [ ] SSH connection manager
 - [ ] Clipboard history
-- [ ] Window switcher (wmctrl integration)
+- [x] Window switcher (wmctrl/hyprctl/wlrctl integration)
 - [ ] Plugin marketplace for community skills
 - [x] Streaming AI responses
 - [ ] Multi-language support

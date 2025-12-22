@@ -102,13 +102,8 @@ struct AppEntry {
     icon: Option<String>,
 }
 
-#[derive(serde::Serialize)]
-struct WindowEntry {
-    title: String,
-    class: String,
-    address: String,
-    icon: Option<String>,
-}
+mod window_manager;
+use window_manager::WindowManager;
 
 mod config;
 
@@ -442,57 +437,22 @@ async fn list_apps() -> Result<Vec<AppEntry>, String> {
 }
 
 #[tauri::command]
-fn list_windows() -> Result<Vec<WindowEntry>, String> {
-    // Check if hyprctl is available or return empty
-    let output = std::process::Command::new("hyprctl")
-        .arg("clients")
-        .arg("-j")
-        .output();
+fn list_windows() -> Result<Vec<window_manager::WindowEntry>, String> {
+    let mut windows = WindowManager::list_windows()?;
 
-    let output = match output {
-        Ok(o) => o,
-        Err(_) => return Ok(vec![]), // Gracefully return empty if hyprctl missing
-    };
-
-    if !output.status.success() {
-        return Ok(vec![]); // Gracefully return empty if command fails
+    // Post-process to resolve icons
+    for window in &mut windows {
+        if window.icon.is_none() {
+            window.icon = resolve_icon(&window.class.to_lowercase());
+        }
     }
-
-    let clients: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("Failed to parse hyprctl output: {}", e))?;
-
-    let windows = clients
-        .into_iter()
-        .map(|client| {
-            let class = client["class"].as_str().unwrap_or("").to_string();
-            let title = client["title"].as_str().unwrap_or("").to_string();
-            let address = client["address"].as_str().unwrap_or("").to_string();
-            let icon = resolve_icon(&class.to_lowercase());
-
-            WindowEntry {
-                title,
-                class,
-                address,
-                icon,
-            }
-        })
-        .collect();
 
     Ok(windows)
 }
 
 #[tauri::command]
 fn focus_window(address: String) -> Result<(), String> {
-    let output = std::process::Command::new("hyprctl")
-        .arg("dispatch")
-        .arg("focuswindow")
-        .arg(format!("address:{}", address))
-        .output();
-
-    match output {
-        Ok(o) if o.status.success() => Ok(()),
-        _ => Err("Failed to focus window (hyprctl not available or failed)".to_string()),
-    }
+    WindowManager::focus_window(&address)
 }
 
 fn resolve_icon(icon_name: &str) -> Option<String> {
