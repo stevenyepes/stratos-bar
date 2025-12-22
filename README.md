@@ -692,7 +692,7 @@ bind = $mainMod, SPACE, exec, /path/to/stratos-bar_0.1.0_amd64.AppImage
 - [ ] Clipboard history
 - [ ] Window switcher (wmctrl integration)
 - [ ] Plugin marketplace for community skills
-- [ ] Streaming AI responses
+- [x] Streaming AI responses
 - [ ] Multi-language support
 
 ---

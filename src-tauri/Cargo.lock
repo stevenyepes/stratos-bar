@@ -3620,10 +3620,12 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-native-tls",
+ "tokio-util",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "winreg 0.50.0",
 ]
@@ -4181,6 +4183,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "dirs 5.0.1",
+ "futures-util",
  "image 0.24.9",
  "ksni",
  "open",

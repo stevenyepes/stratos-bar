@@ -87,7 +87,8 @@
                           @update:model-value="autoSave"
                         ></v-select>
                         <v-btn 
-                          icon="mdi-refresh" 
+                          :icon="modelsRefreshed ? 'mdi-check' : 'mdi-refresh'" 
+                          :color="modelsRefreshed ? 'success' : undefined"
                           variant="text" 
                           size="small"
                           class="refresh-btn" 
@@ -109,6 +110,27 @@
                       ></v-text-field>
                     </div>
                   </v-expand-transition>
+
+                  <!-- Connection Check -->
+                  <div class="d-flex align-center mt-2 mb-4">
+                    <v-btn
+                      :loading="checkingConnection"
+                      :color="connectionStatus === 'success' ? 'success' : (connectionStatus === 'error' ? 'error' : 'secondary')"
+                      variant="tonal"
+                      prepend-icon="mdi-connection"
+                      class="text-none"
+                      @click="checkConnection"
+                    >
+                      Test Connection
+                    </v-btn>
+                    
+                    <transition name="fade">
+                       <div v-if="connectionStatus" class="ml-4 d-flex align-center">
+                          <v-icon :icon="connectionStatus === 'success' ? 'mdi-check-circle' : 'mdi-alert-circle'" :color="connectionStatus === 'success' ? 'success' : 'error'" class="mr-2"></v-icon>
+                          <span :class="connectionStatus === 'success' ? 'text-success' : 'text-error'" class="text-caption font-weight-bold">{{ connectionMessage }}</span>
+                       </div>
+                    </transition>
+                  </div>
                 </div>
 
                 <!-- Appearance Settings -->
@@ -398,7 +420,11 @@ const config = ref({
 })
 const ollamaModels = ref([])
 const fetchingModels = ref(false)
+const modelsRefreshed = ref(false)
 const showSaved = ref(false)
+const checkingConnection = ref(false)
+const connectionStatus = ref(null) // 'success' | 'error' | null
+const connectionMessage = ref('')
 let saveTimeout = null
 
 watch(() => props.initialConfig, (val) => {
@@ -509,13 +535,43 @@ function getToolName(id) {
 async function fetchOllamaModels() {
     if (config.value && config.value.preferred_model !== 'local') return
     fetchingModels.value = true
+    modelsRefreshed.value = false
     try {
         await invoke('save_config', { config: config.value }) 
         ollamaModels.value = await invoke('list_ollama_models')
+        
+        // Show success confirmation
+        modelsRefreshed.value = true
+        setTimeout(() => {
+            modelsRefreshed.value = false
+        }, 2000)
     } catch(e) {
         console.error("Failed to fetch models", e)
     } finally {
         fetchingModels.value = false
+    }
+}
+
+async function checkConnection() {
+    checkingConnection.value = true
+    connectionStatus.value = null
+    connectionMessage.value = ''
+    
+    try {
+        const result = await invoke('check_ai_connection')
+        connectionStatus.value = 'success'
+        connectionMessage.value = result
+    } catch(e) {
+        connectionStatus.value = 'error'
+        connectionMessage.value = e
+    } finally {
+        checkingConnection.value = false
+        // Clear success message after 3s
+        if (connectionStatus.value === 'success') {
+            setTimeout(() => {
+                connectionStatus.value = null
+            }, 3000)
+        }
     }
 }
 

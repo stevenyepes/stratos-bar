@@ -1,3 +1,4 @@
+use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use tauri::{Emitter, Manager};
@@ -131,12 +132,16 @@ pub struct Message {
 }
 
 #[tauri::command]
-async fn ask_ai(messages: Vec<Message>) -> Result<String, String> {
+async fn ask_ai(window: tauri::Window, messages: Vec<Message>) -> Result<(), String> {
     let config = ConfigManager::load_config();
     let client = reqwest::Client::new();
 
+    window
+        .emit("ai-response-start", ())
+        .map_err(|e| e.to_string())?;
+
     if config.preferred_model == "local" {
-        // Ollama - use /api/chat
+        // Ollama streaming
         let url = format!(
             "{}/api/chat",
             config
@@ -149,18 +154,30 @@ async fn ask_ai(messages: Vec<Message>) -> Result<String, String> {
             .json(&json!({
                 "model": config.ollama_model.unwrap_or("llama3".to_string()),
                 "messages": messages,
-                "stream": false
+                "stream": true
             }))
             .send()
             .await
             .map_err(|e| e.to_string())?;
 
-        let body: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-        // Ollama /api/chat returns message.content
-        Ok(body["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string())
+        let mut stream = res.bytes_stream();
+        while let Some(item) = stream.next().await {
+            let chunk = item.map_err(|e| e.to_string())?;
+            let chunk_str = String::from_utf8_lossy(&chunk);
+
+            for line in chunk_str.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(content) = val["message"]["content"].as_str() {
+                        window
+                            .emit("ai-response-chunk", content)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+        }
     } else {
         // Cloud (OpenAI)
         if let Some(key) = config.openai_api_key {
@@ -169,18 +186,106 @@ async fn ask_ai(messages: Vec<Message>) -> Result<String, String> {
                 .header("Authorization", format!("Bearer {}", key))
                 .json(&json!({
                     "model": "gpt-4o",
-                    "messages": messages
+                    "messages": messages,
+                    "stream": true
                 }))
                 .send()
                 .await
                 .map_err(|e| e.to_string())?;
 
-            let body: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-            // OpenAI returns choices[0].message.content
-            Ok(body["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or("")
-                .to_string())
+            let mut stream = res.bytes_stream();
+            while let Some(item) = stream.next().await {
+                let chunk = item.map_err(|e| e.to_string())?;
+                let chunk_str = String::from_utf8_lossy(&chunk);
+
+                for line in chunk_str.lines() {
+                    let line = line.trim();
+                    if line.starts_with("data: ") {
+                        let data = &line[6..];
+                        if data == "[DONE]" {
+                            break;
+                        }
+                        // Handle potential partial JSONs or errors by ignoring malformed lines
+                        // In production, we'd want a proper buffer
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
+                            if let Some(content) = val["choices"][0]["delta"]["content"].as_str() {
+                                window
+                                    .emit("ai-response-chunk", content)
+                                    .map_err(|e| e.to_string())?;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            let err = "No OpenAI API Key configured";
+            window
+                .emit("ai-response-error", err)
+                .map_err(|e| e.to_string())?;
+            return Err(err.to_string());
+        }
+    }
+
+    window
+        .emit("ai-response-done", ())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn check_ai_connection() -> Result<String, String> {
+    let config = ConfigManager::load_config();
+    let client = reqwest::Client::new();
+
+    let start = std::time::Instant::now();
+
+    if config.preferred_model == "local" {
+        // Test Ollama connection
+        let url = format!(
+            "{}/api/tags",
+            config
+                .local_model_url
+                .unwrap_or("http://127.0.0.1:11434".to_string())
+        );
+
+        let res = client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await;
+
+        match res {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let duration = start.elapsed();
+                    Ok(format!("Connected to Ollama ({:?})", duration))
+                } else {
+                    Err(format!("Ollama returned error: {}", response.status()))
+                }
+            }
+            Err(e) => Err(format!("Failed to connect to Ollama: {}", e)),
+        }
+    } else {
+        // Test OpenAI connection
+        if let Some(key) = config.openai_api_key {
+            let res = client
+                .get("https://api.openai.com/v1/models")
+                .header("Authorization", format!("Bearer {}", key))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await;
+
+            match res {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let duration = start.elapsed();
+                        Ok(format!("Connected to OpenAI ({:?})", duration))
+                    } else {
+                        Err(format!("OpenAI returned error: {}", response.status()))
+                    }
+                }
+                Err(e) => Err(format!("Failed to connect to OpenAI: {}", e)),
+            }
         } else {
             Err("No OpenAI API Key configured".to_string())
         }
@@ -593,7 +698,8 @@ pub fn run() {
             get_selection_context,
             copy_to_clipboard,
             list_windows,
-            focus_window
+            focus_window,
+            check_ai_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

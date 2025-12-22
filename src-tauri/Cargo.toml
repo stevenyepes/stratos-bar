@@ -18,10 +18,11 @@ name = "stratos_bar_lib"
 [dependencies]
 arboard = "3"
 dirs = "5"
+futures-util = "0.3"
 image = "0.24"
 ksni = "0.2.1"
 open = "5"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shell-words = "1.1.0"

@@ -222,7 +222,7 @@
                     <button class="action-btn interactive" @click="copyMessage(msg.content)" title="Copy">
                       📄
                     </button>
-                    <button class="action-btn interactive" title="Regenerate">
+                    <button class="action-btn interactive" @click="regenerateMessage(i)" title="Regenerate">
                       🔄
                     </button>
                   </div>
@@ -277,6 +277,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window'
 import * as path from '@tauri-apps/api/path'
 import { LogicalSize } from '@tauri-apps/api/dpi'
@@ -349,7 +350,38 @@ onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('reload-config', reloadConfig)
   document.addEventListener('click', handleCodeCopy)
+  
+  setupAiListeners()
 })
+
+let unlisteners = []
+
+async function setupAiListeners() {
+  unlisteners.push(await listen('ai-response-start', () => {
+    chatLoading.value = false
+    chatMessages.value.push({ role: 'assistant', content: '' })
+    scrollToBottom()
+  }))
+  
+  unlisteners.push(await listen('ai-response-chunk', (event) => {
+    const lastMsg = chatMessages.value[chatMessages.value.length - 1]
+    if (lastMsg && lastMsg.role === 'assistant') {
+      lastMsg.content += event.payload
+      scrollToBottom()
+    }
+  }))
+  
+  unlisteners.push(await listen('ai-response-done', () => {
+    chatLoading.value = false
+    scrollToBottom()
+  }))
+  
+  unlisteners.push(await listen('ai-response-error', (event) => {
+    chatLoading.value = false
+    chatMessages.value.push({ role: 'assistant', content: 'Error: ' + event.payload })
+    scrollToBottom()
+  }))
+}
 
 function handleCodeCopy(e) {
   if (e.target.classList.contains('code-copy-btn')) {
@@ -389,6 +421,9 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('reload-config', reloadConfig)
   document.removeEventListener('click', handleCodeCopy)
+  
+  unlisteners.forEach(u => u())
+  unlisteners = []
 })
 
 function handleGlobalKeydown(e) {
@@ -802,12 +837,11 @@ async function sendChatMessage(e, skipUserAdd = false) {
   
   try {
     const history = JSON.parse(JSON.stringify(chatMessages.value))
-    const response = await invoke('ask_ai', { messages: history })
-    chatMessages.value.push({ role: 'assistant', content: response })
+    await invoke('ask_ai', { messages: history })
+    // Streaming response handled by events
   } catch(err) {
     console.error(err)
     chatMessages.value.push({ role: 'assistant', content: 'Error: ' + err })
-  } finally {
     chatLoading.value = false
     scrollToBottom()
   }
@@ -831,9 +865,39 @@ function renderMarkdown(text) {
 
 async function copyMessage(content) {
   try {
-    await navigator.clipboard.writeText(content)
+    await invoke('copy_to_clipboard', { text: content })
   } catch(e) {
     console.error('Failed to copy', e)
+  }
+}
+
+async function regenerateMessage(index) {
+  if (chatLoading.value) return
+  
+  // Remove this AI message and everything after it
+  // But wait, the previous message is the User message.
+  // We want to keep the history up to the user message, and re-trigger sendChatMessage.
+  
+  // index is the index of the AI message
+  // The user message that triggered this is likely index - 1
+  
+  if (index > 0) {
+      // Keep everything up to (and including) the user message at index - 1
+      chatMessages.value = chatMessages.value.slice(0, index)
+      
+      // Resend the request with the new history
+      chatLoading.value = true
+      scrollToBottom()
+      
+      try {
+        const history = JSON.parse(JSON.stringify(chatMessages.value))
+        await invoke('ask_ai', { messages: history })
+      } catch(err) {
+        console.error(err)
+        chatMessages.value.push({ role: 'assistant', content: 'Error: ' + err })
+        chatLoading.value = false
+        scrollToBottom()
+      }
   }
 }
 
