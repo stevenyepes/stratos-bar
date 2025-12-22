@@ -1,6 +1,4 @@
-use ksni;
 use std::collections::HashMap;
-use std::io::Write;
 use std::sync::{Mutex, OnceLock};
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
@@ -270,10 +268,16 @@ async fn open_entity(path: String) -> Result<(), String> {
 async fn list_apps() -> Result<Vec<AppEntry>, String> {
     let mut apps = Vec::new();
 
-    let mut paths = vec![
-        std::path::PathBuf::from("/usr/share/applications"),
-        std::path::PathBuf::from("/usr/local/share/applications"),
-    ];
+    let mut paths = Vec::new();
+    if let Ok(dirs) = std::env::var("XDG_DATA_DIRS") {
+        for dir in dirs.split(':') {
+            paths.push(std::path::PathBuf::from(dir).join("applications"));
+        }
+    } else {
+        // Fallback if XDG_DATA_DIRS is not set
+        paths.push(std::path::PathBuf::from("/usr/share/applications"));
+        paths.push(std::path::PathBuf::from("/usr/local/share/applications"));
+    }
 
     if let Some(home) = dirs::data_local_dir() {
         paths.push(home.join("applications"));
@@ -334,14 +338,19 @@ async fn list_apps() -> Result<Vec<AppEntry>, String> {
 
 #[tauri::command]
 fn list_windows() -> Result<Vec<WindowEntry>, String> {
+    // Check if hyprctl is available or return empty
     let output = std::process::Command::new("hyprctl")
         .arg("clients")
         .arg("-j")
-        .output()
-        .map_err(|e| format!("Failed to execute hyprctl: {}", e))?;
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(_) => return Ok(vec![]), // Gracefully return empty if hyprctl missing
+    };
 
     if !output.status.success() {
-        return Err("hyprctl failed".to_string());
+        return Ok(vec![]); // Gracefully return empty if command fails
     }
 
     let clients: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
@@ -373,14 +382,12 @@ fn focus_window(address: String) -> Result<(), String> {
         .arg("dispatch")
         .arg("focuswindow")
         .arg(format!("address:{}", address))
-        .output()
-        .map_err(|e| format!("Failed to execute hyprctl: {}", e))?;
+        .output();
 
-    if !output.status.success() {
-        return Err("Failed to focus window".to_string());
+    match output {
+        Ok(o) if o.status.success() => Ok(()),
+        _ => Err("Failed to focus window (hyprctl not available or failed)".to_string()),
     }
-
-    Ok(())
 }
 
 fn resolve_icon(icon_name: &str) -> Option<String> {
@@ -401,15 +408,40 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
         return result;
     }
 
-    let mut search_paths = vec![
-        "/usr/share/pixmaps".to_string(),
-        "/usr/share/icons/hicolor/48x48/apps".to_string(),
-        "/usr/share/icons/hicolor/128x128/apps".to_string(),
-        "/usr/share/icons/hicolor/256x256/apps".to_string(),
-        "/usr/share/icons/hicolor/scalable/apps".to_string(),
-        "/usr/share/icons".to_string(),
-    ];
+    let mut search_paths = Vec::new();
 
+    // Standard XDG paths
+    if let Ok(dirs) = std::env::var("XDG_DATA_DIRS") {
+        for dir in dirs.split(':') {
+            let p = std::path::Path::new(dir);
+            search_paths.push(p.join("pixmaps").to_string_lossy().to_string());
+            search_paths.push(p.join("icons").to_string_lossy().to_string());
+            // Add common resolutions
+            search_paths.push(
+                p.join("icons/hicolor/48x48/apps")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+            search_paths.push(
+                p.join("icons/hicolor/128x128/apps")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+            search_paths.push(
+                p.join("icons/hicolor/scalable/apps")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+    } else {
+        search_paths.push("/usr/share/pixmaps".to_string());
+        search_paths.push("/usr/share/icons".to_string());
+        search_paths.push("/usr/share/icons/hicolor/48x48/apps".to_string());
+        search_paths.push("/usr/share/icons/hicolor/128x128/apps".to_string());
+        search_paths.push("/usr/share/icons/hicolor/scalable/apps".to_string());
+    }
+
+    // User local paths
     if let Some(home) = dirs::data_local_dir() {
         search_paths.push(home.join("icons").to_string_lossy().to_string());
         search_paths.push(
@@ -471,46 +503,13 @@ async fn search_files(query: String, path: String) -> Result<Vec<String>, String
 
 #[tauri::command]
 async fn get_selection_context() -> Result<String, String> {
-    // Helper to run a command and get output
-    fn run_output(cmd: &str, args: &[&str]) -> Option<String> {
-        std::process::Command::new(cmd)
-            .args(args)
-            .output()
-            .ok()
-            .and_then(|output| {
-                if output.status.success() {
-                    String::from_utf8(output.stdout).ok()
-                } else {
-                    None
-                }
-            })
-    }
+    use arboard::Clipboard;
 
-    // 1. Try Wayland Primary
-    if let Some(text) = run_output("wl-paste", &["--primary"]) {
-        if !text.trim().is_empty() {
-            return Ok(text);
-        }
-    }
-
-    // 2. Try X11 Primary
-    if let Some(text) = run_output("xclip", &["-o", "-selection", "primary"]) {
-        if !text.trim().is_empty() {
-            return Ok(text);
-        }
-    }
-
-    // 3. Try Wayland Clipboard
-    if let Some(text) = run_output("wl-paste", &[]) {
-        if !text.trim().is_empty() {
-            return Ok(text);
-        }
-    }
-
-    // 4. Try X11 Clipboard
-    if let Some(text) = run_output("xclip", &["-o", "-selection", "clipboard"]) {
-        if !text.trim().is_empty() {
-            return Ok(text);
+    if let Ok(mut clipboard) = Clipboard::new() {
+        if let Ok(text) = clipboard.get_text() {
+            if !text.trim().is_empty() {
+                return Ok(text);
+            }
         }
     }
 
@@ -520,43 +519,12 @@ async fn get_selection_context() -> Result<String, String> {
 #[tauri::command]
 async fn copy_to_clipboard(text: String) -> Result<(), String> {
     println!("DEBUG: copy_to_clipboard called with text: '{}'", text);
+    use arboard::Clipboard;
 
-    // Helper to pipe input to command
-    fn run_input(cmd: &str, args: &[&str], input: &str) -> Result<(), String> {
-        let mut child = std::process::Command::new(cmd)
-            .args(args)
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
+    let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.set_text(text).map_err(|e| e.to_string())?;
 
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(input.as_bytes())
-                .map_err(|e| e.to_string())?;
-        }
-
-        let status = child.wait().map_err(|e| e.to_string())?;
-
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("Command {} failed with status {:?}", cmd, status))
-        }
-    }
-
-    // 1. Try wl-copy (Wayland)
-    if run_input("wl-copy", &["--type", "text/plain"], &text).is_ok() {
-        return Ok(());
-    }
-
-    // 2. Try xclip (X11)
-    // -selection clipboard
-    if run_input("xclip", &["-selection", "clipboard"], &text).is_ok() {
-        return Ok(());
-    }
-
-    // 3. Fallback to arboard via a new instance? Or just error.
-    Err("Failed to copy to clipboard (wl-copy and xclip failed)".to_string())
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

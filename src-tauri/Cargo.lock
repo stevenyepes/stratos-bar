@@ -4179,6 +4179,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "stratos-bar"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "dirs 5.0.1",
  "image 0.24.9",
  "ksni",

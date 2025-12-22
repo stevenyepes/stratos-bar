@@ -16,6 +16,7 @@ crate-type = ["cdylib", "rlib", "staticlib"]
 name = "stratos_bar_lib"
 
 [dependencies]
+arboard = "3"
 dirs = "5"
 image = "0.24"
 ksni = "0.2.1"

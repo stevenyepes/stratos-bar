@@ -278,6 +278,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window'
+import * as path from '@tauri-apps/api/path'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import Settings from './components/Settings.vue'
 import CurrencyResult from './components/CurrencyResult.vue'
@@ -347,7 +348,25 @@ onMounted(async () => {
   }
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('reload-config', reloadConfig)
+  document.addEventListener('click', handleCodeCopy)
 })
+
+function handleCodeCopy(e) {
+  if (e.target.classList.contains('code-copy-btn')) {
+    const code = e.target.getAttribute('data-code')
+    if (code) {
+      invoke('copy_to_clipboard', { text: code })
+        .then(() => {
+          const originalText = e.target.innerText
+          e.target.innerText = 'Copied!'
+          setTimeout(() => {
+            e.target.innerText = originalText
+          }, 2000)
+        })
+        .catch(err => console.error('Failed to copy code:', err))
+    }
+  }
+}
 
 async function loadData() {
   try {
@@ -369,6 +388,7 @@ async function loadData() {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('reload-config', reloadConfig)
+  document.removeEventListener('click', handleCodeCopy)
 })
 
 function handleGlobalKeydown(e) {
@@ -450,7 +470,8 @@ watch(query, (newVal) => {
     clearTimeout(window.searchTimeout)
     window.searchTimeout = setTimeout(async () => {
       try {
-        files.value = await invoke('search_files', { query: fileQuery, path: '/home/jsteven' })
+        const home = await path.homeDir()
+        files.value = await invoke('search_files', { query: fileQuery, path: home })
       } catch (e) {
         console.error(e)
       }
