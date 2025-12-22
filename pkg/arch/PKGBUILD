@@ -7,6 +7,11 @@ arch=('x86_64')
 url="https://github.com/yourusername/stratos-bar"
 license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'openssl')
+optdepends=(
+    'wmctrl: Window management support for X11'
+    'wlrctl: Window management support for generic Wayland'
+    'hyprland: Native window management support'
+)
 makedepends=('npm' 'cargo' 'nodejs' 'git')
 source=("${pkgname}::git+file://${startdir}/../../")
 sha256sums=('SKIP')
