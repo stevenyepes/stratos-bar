@@ -16,6 +16,13 @@ A modern, minimalist AI-powered command palette for Linux with a Raycast-inspire
 
 **Global Shortcut**: `Super+Space` toggles the command palette
 
+
+<div align="center">
+  <a href="https://youtu.be/YoXBJO-3_Xo">
+    <img src="https://img.youtube.com/vi/YoXBJO-3_Xo/hqdefault.jpg" alt="StratosBar Introduction" width="600">
+  </a>
+</div>
+
 ---
 
 ## 📋 Table of Contents
