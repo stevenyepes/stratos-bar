@@ -14,6 +14,27 @@
     "core:window:allow-set-focus",
     "clipboard-manager:default",
     "dialog:default",
-    "fs:default"
+    {
+      "identifier": "fs:allow-read",
+      "options": {
+        "scope": [
+          "/usr/share/icons/**",
+          "/usr/share/pixmaps/**",
+          "$HOME/.local/share/icons/**",
+          "$HOME/.steam/root/appcache/librarycache/**"
+        ]
+      }
+    },
+    {
+      "identifier": "core:image:allow-from-path",
+      "options": {
+        "scope": [
+          "/usr/share/icons/**",
+          "/usr/share/pixmaps/**",
+          "$HOME/.local/share/icons/**",
+          "$HOME/.steam/root/appcache/librarycache/**"
+        ]
+      }
+    }
   ]
 }

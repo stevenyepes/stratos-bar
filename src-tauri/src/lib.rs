@@ -8,6 +8,8 @@ use walkdir::WalkDir;
 static ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
 
 // Public for testing, or just use within module
+
+// Helper to clean exec command
 fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
     let cleaned = exec_cmd
         .replace("%f", "")
@@ -132,7 +134,7 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 struct AppEntry {
     name: String,
     exec: String,
@@ -403,67 +405,147 @@ async fn open_entity(path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn list_apps() -> Result<Vec<AppEntry>, String> {
-    let mut apps = Vec::new();
+    use freedesktop_desktop_entry::Iter;
+    use std::collections::HashSet;
+    use std::path::PathBuf;
 
-    let mut paths = Vec::new();
+    let mut apps = Vec::new();
+    let mut seen_ids = HashSet::new();
+
+    // Construct search paths
+    let mut search_paths = Vec::new();
     if let Ok(dirs) = std::env::var("XDG_DATA_DIRS") {
         for dir in dirs.split(':') {
-            paths.push(std::path::PathBuf::from(dir).join("applications"));
+            search_paths.push(PathBuf::from(dir).join("applications"));
         }
     } else {
-        // Fallback if XDG_DATA_DIRS is not set
-        paths.push(std::path::PathBuf::from("/usr/share/applications"));
-        paths.push(std::path::PathBuf::from("/usr/local/share/applications"));
+        search_paths.push(PathBuf::from("/usr/share/applications"));
+        search_paths.push(PathBuf::from("/usr/local/share/applications"));
     }
-
     if let Some(home) = dirs::data_local_dir() {
-        paths.push(home.join("applications"));
+        search_paths.push(home.join("applications"));
     }
 
-    for path in paths {
-        if !path.exists() {
-            continue;
+    // Helper to parse desktop file manually
+    fn parse_desktop_file(path: &std::path::Path) -> Option<AppEntry> {
+        let content = std::fs::read_to_string(path).ok()?;
+        let mut in_desktop_entry = false;
+        let mut name = None;
+        let mut exec = None;
+        let mut icon = None;
+        let mut no_display = false;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                in_desktop_entry = line == "[Desktop Entry]";
+                continue;
+            }
+
+            if in_desktop_entry {
+                if let Some(val) = line.strip_prefix("Name=") {
+                    if name.is_none() {
+                        name = Some(val.to_string());
+                    }
+                } else if let Some(val) = line.strip_prefix("Exec=") {
+                    if exec.is_none() {
+                        // Cleanup exec command (remove field codes)
+                        let clean_exec = val
+                            .replace("%f", "")
+                            .replace("%F", "")
+                            .replace("%u", "")
+                            .replace("%U", "")
+                            .replace("%i", "")
+                            .replace("%c", "")
+                            .replace("%k", "")
+                            .trim()
+                            .to_string();
+                        exec = Some(clean_exec);
+                    }
+                } else if let Some(val) = line.strip_prefix("Icon=") {
+                    if icon.is_none() {
+                        icon = Some(val.to_string());
+                    }
+                } else if let Some(val) = line.strip_prefix("NoDisplay=") {
+                    if val.to_lowercase() == "true" {
+                        no_display = true;
+                    }
+                }
+            }
         }
 
-        for entry in WalkDir::new(path)
-            .max_depth(1)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            let p = entry.path();
-            if p.extension().map_or(false, |ext| ext == "desktop") {
-                if let Ok(content) = std::fs::read_to_string(p) {
-                    let mut name = None;
-                    let mut exec = None;
-                    let mut icon = None;
-                    let mut is_hidden = false;
+        if !no_display {
+            if let (Some(name), Some(exec)) = (name, exec) {
+                // Check if icon resolves
+                let icon_path = icon.and_then(|i| resolve_icon(&i));
+                return Some(AppEntry {
+                    name,
+                    exec,
+                    icon: icon_path.filter(|i| !i.is_empty()),
+                });
+            }
+        }
+        None
+    }
 
-                    for line in content.lines() {
-                        if line.starts_with("Name=") && name.is_none() {
-                            name = Some(line.trim_start_matches("Name=").to_string());
-                        } else if line.starts_with("Exec=") && exec.is_none() {
-                            exec = Some(line.trim_start_matches("Exec=").to_string());
-                        } else if line.starts_with("Icon=") && icon.is_none() {
-                            icon = Some(line.trim_start_matches("Icon=").to_string());
-                        } else if line.starts_with("NoDisplay=true") {
-                            is_hidden = true;
-                        }
+    // Iterate over paths using the crate's iterator
+    for path in Iter::new(search_paths.clone().into_iter()) {
+        if let Some(app) = parse_desktop_file(&path) {
+            let id = app.name.clone();
+            if !seen_ids.contains(&id) {
+                apps.push(app);
+                seen_ids.insert(id);
+            }
+        }
+    }
+
+    // 2. Scan Flatpak Exports explicitly if available
+    let flatpak_paths = vec![
+        PathBuf::from("/var/lib/flatpak/exports/share/applications"),
+        dirs::data_local_dir()
+            .map(|d| d.join("flatpak/exports/share/applications"))
+            .unwrap_or_default(),
+    ];
+
+    // Scan flatpaks using same Iter
+    for path in Iter::new(flatpak_paths.into_iter()) {
+        if let Some(app) = parse_desktop_file(&path) {
+            let id = app.name.clone();
+            if !seen_ids.contains(&id) {
+                apps.push(app);
+                seen_ids.insert(id);
+            }
+        }
+    }
+
+    // 3. Scan AppImages
+    if let Some(home) = dirs::home_dir() {
+        let applications_dir = home.join("Applications");
+        if applications_dir.exists() {
+            let glob_pattern = applications_dir.join("*.AppImage");
+            if let Ok(glob_paths) = glob::glob(&glob_pattern.to_string_lossy()) {
+                for entry in glob_paths.filter_map(|e| e.ok()) {
+                    let name = entry
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    if name.is_empty() {
+                        continue;
+                    }
+                    if seen_ids.contains(&name) {
+                        continue;
                     }
 
-                    if !is_hidden {
-                        if let (Some(name), Some(exec)) = (name, exec) {
-                            let icon_path = if let Some(icon_name) = icon {
-                                resolve_icon(&icon_name)
-                            } else {
-                                None
-                            };
-                            apps.push(AppEntry {
-                                name,
-                                exec,
-                                icon: icon_path,
-                            });
-                        }
-                    }
+                    let icon =
+                        resolve_icon(&name).or_else(|| resolve_icon("application-x-executable"));
+
+                    apps.push(AppEntry {
+                        name: name.clone(),
+                        exec: entry.to_string_lossy().to_string(),
+                        icon,
+                    });
+                    seen_ids.insert(name);
                 }
             }
         }
@@ -501,13 +583,46 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
         }
     }
 
+    // 1. Direct path check
     let path = std::path::Path::new(icon_name);
     if path.is_absolute() && path.exists() {
-        let result = Some(icon_name.to_string());
+        // Canonicalize to resolve symlinks
+        let resolved_path = match std::fs::canonicalize(path) {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => icon_name.to_string(), // Fallback to original if canonicalize fails
+        };
+        let result = Some(resolved_path);
         if let Ok(mut guard) = cache.lock() {
             guard.insert(icon_name.to_string(), result.clone());
         }
         return result;
+    }
+
+    // 2. Use linicon
+    use linicon::lookup_icon;
+
+    // Iterate over all results instead of just first, prioritize scalable/png
+    // Actually linicon should return best match first.
+    if let Some(icon_path) = lookup_icon(icon_name).next() {
+        if let Ok(path_str) = icon_path {
+            // Canonicalize to resolve symlinks
+            let resolved_path = match std::fs::canonicalize(&path_str.path) {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(_) => path_str.path.to_string_lossy().to_string(),
+            };
+            let result = Some(resolved_path);
+            if let Ok(mut guard) = cache.lock() {
+                guard.insert(icon_name.to_string(), result.clone());
+            }
+            return result;
+        }
+    }
+
+    // 3. Fallback: Manual search in standard paths
+    // Linicon might fail if theme config is weird or specific sizes not found?
+    // Let's do a robust manual search for common cases (steam, hicolor default)
+    if icon_name.contains("steam") || icon_name.contains("org.gnome") {
+        println!("DEBUG: Manual fallback for {}", icon_name);
     }
 
     let mut search_paths = Vec::new();
@@ -516,59 +631,58 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
     if let Ok(dirs) = std::env::var("XDG_DATA_DIRS") {
         for dir in dirs.split(':') {
             let p = std::path::Path::new(dir);
-            search_paths.push(p.join("pixmaps").to_string_lossy().to_string());
-            search_paths.push(p.join("icons").to_string_lossy().to_string());
-            // Add common resolutions
-            search_paths.push(
-                p.join("icons/hicolor/48x48/apps")
-                    .to_string_lossy()
-                    .to_string(),
-            );
-            search_paths.push(
-                p.join("icons/hicolor/128x128/apps")
-                    .to_string_lossy()
-                    .to_string(),
-            );
-            search_paths.push(
-                p.join("icons/hicolor/scalable/apps")
-                    .to_string_lossy()
-                    .to_string(),
-            );
+            // Check hicolor fallback which is almost always used by Steam/Apps
+            search_paths.push(p.join("icons/hicolor/48x48/apps"));
+            search_paths.push(p.join("icons/hicolor/32x32/apps"));
+            search_paths.push(p.join("icons/hicolor/128x128/apps"));
+            search_paths.push(p.join("icons/hicolor/scalable/apps"));
+            search_paths.push(p.join("pixmaps"));
+            search_paths.push(p.join("icons"));
         }
     } else {
-        search_paths.push("/usr/share/pixmaps".to_string());
-        search_paths.push("/usr/share/icons".to_string());
-        search_paths.push("/usr/share/icons/hicolor/48x48/apps".to_string());
-        search_paths.push("/usr/share/icons/hicolor/128x128/apps".to_string());
-        search_paths.push("/usr/share/icons/hicolor/scalable/apps".to_string());
+        search_paths.push(std::path::PathBuf::from(
+            "/usr/share/icons/hicolor/48x48/apps",
+        ));
+        search_paths.push(std::path::PathBuf::from(
+            "/usr/share/icons/hicolor/32x32/apps",
+        ));
+        search_paths.push(std::path::PathBuf::from(
+            "/usr/share/icons/hicolor/scalable/apps",
+        ));
+        search_paths.push(std::path::PathBuf::from("/usr/share/pixmaps"));
+        search_paths.push(std::path::PathBuf::from("/usr/share/icons"));
     }
 
     // User local paths
     if let Some(home) = dirs::data_local_dir() {
-        search_paths.push(home.join("icons").to_string_lossy().to_string());
-        search_paths.push(
-            home.join("icons/hicolor/48x48/apps")
-                .to_string_lossy()
-                .to_string(),
-        );
-        search_paths.push(
-            home.join("icons/hicolor/128x128/apps")
-                .to_string_lossy()
-                .to_string(),
-        );
-        search_paths.push(
-            home.join("icons/hicolor/scalable/apps")
-                .to_string_lossy()
-                .to_string(),
-        );
+        search_paths.push(home.join("icons/hicolor/48x48/apps"));
+        search_paths.push(home.join("icons/hicolor/32x32/apps"));
+        search_paths.push(home.join("icons/hicolor/128x128/apps"));
+        search_paths.push(home.join("icons/hicolor/scalable/apps"));
+        search_paths.push(home.join("icons"));
     }
 
-    let extensions = vec!["png", "svg", "xpm"];
+    // Steam specific paths
+    if let Some(home) = dirs::home_dir() {
+        search_paths.push(home.join(".steam/root/appcache/librarycache"));
+        search_paths.push(home.join(".local/share/icons/hicolor/48x48/apps"));
+    }
 
-    // First, quick check in specific paths (non-recursive) for speed
+    let extensions = vec!["png", "svg", "xpm", "ico", "jpg"];
+
     for base in &search_paths {
-        for ext in &extensions {
-            let p = std::path::Path::new(base).join(format!("{}.{}", icon_name, ext));
+        if !base.exists() {
+            continue;
+        }
+
+        // Steam specific cache check (icon_name usually steam_icon_APPID)
+        // librarycache has files like APPID_icon.jpg or just matches the name
+        // The icons in librarycache seem to be mostly jpg or png, named by appid.
+        // But our icon_name from desktop file is usually "steam_icon_APPID".
+        if base.ends_with("librarycache") && icon_name.starts_with("steam_icon_") {
+            let app_id = icon_name.trim_start_matches("steam_icon_");
+            // try app_id_icon.jpg
+            let p = base.join(format!("{}_icon.jpg", app_id));
             if p.exists() {
                 let result = Some(p.to_string_lossy().to_string());
                 if let Ok(mut guard) = cache.lock() {
@@ -577,9 +691,56 @@ fn resolve_icon(icon_name: &str) -> Option<String> {
                 return result;
             }
         }
+
+        for ext in &extensions {
+            let p = base.join(format!("{}.{}", icon_name, ext));
+            if p.exists() {
+                if icon_name.contains("steam") || icon_name.contains("org.gnome") {
+                    println!("DEBUG: Found at {:?}", p);
+                }
+                // Canonicalize to resolve symlinks
+                let resolved_path = match std::fs::canonicalize(&p) {
+                    Ok(canonical) => canonical.to_string_lossy().to_string(),
+                    Err(_) => p.to_string_lossy().to_string(),
+                };
+                let result = Some(resolved_path);
+                if let Ok(mut guard) = cache.lock() {
+                    guard.insert(icon_name.to_string(), result.clone());
+                }
+                return result;
+            }
+        }
     }
 
-    println!("Failed to resolve icon: {}", icon_name);
+    if icon_name.contains("steam") {
+        println!("DEBUG: Failed to find {} in {:?}", icon_name, search_paths);
+    }
+
+    // Try stripping extension if present in name but not a path
+    // e.g. "foo.png" -> "foo"
+    if let Some(stem) = std::path::Path::new(icon_name).file_stem() {
+        if stem != icon_name {
+            let stem_str = stem.to_string_lossy();
+            // Recurse once
+            // Avoid infinite recursion by checking strictly different
+            // Actually just call manual lookup again or linicon again?
+            // Calling linicon again is safe.
+            if let Some(icon_path) = lookup_icon(&stem_str).next() {
+                if let Ok(path_str) = icon_path {
+                    let result = Some(path_str.path.to_string_lossy().to_string());
+                    if let Ok(mut guard) = cache.lock() {
+                        guard.insert(icon_name.to_string(), result.clone());
+                    }
+                    return result;
+                }
+            }
+        }
+    }
+
+    // Fallback? Linicon is pretty good.
+    // If it is a generic name like "firefox", linicon handles it.
+    // If it fails, maybe return None.
+
     if let Ok(mut guard) = cache.lock() {
         guard.insert(icon_name.to_string(), None);
     }
@@ -647,6 +808,15 @@ pub fn run() {
             // But ksni::TrayService::spawn returns a handle and runs in background if runtime available?
             // Actually ksni service.spawn() spawns it. simple.
             service.spawn();
+
+            // DEBUG: Force list_apps to run
+            tauri::async_runtime::spawn(async {
+                println!("DEBUG: Triggering list_apps manually");
+                match list_apps().await {
+                    Ok(apps) => println!("DEBUG: list_apps finished, found {} apps", apps.len()),
+                    Err(e) => println!("DEBUG: list_apps failed: {}", e),
+                }
+            });
 
             Ok(())
         })

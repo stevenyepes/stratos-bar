@@ -18,9 +18,12 @@ name = "stratos_bar_lib"
 [dependencies]
 arboard = "3"
 dirs = "5"
+freedesktop-desktop-entry = "0.8.0"
 futures-util = "0.3"
+glob = "0.3.3"
 image = "0.24"
 ksni = "0.2.1"
+linicon = "2.3.0"
 open = "5"
 reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }

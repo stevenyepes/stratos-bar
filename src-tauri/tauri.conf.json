@@ -27,10 +27,11 @@
       "csp": null,
       "assetProtocol": {
         "scope": [
-          "/usr/share/icons/**/*",
-          "/usr/share/pixmaps/**/*",
-          "/opt/**/*",
-          "/home/**/*"
+          "$HOME/.local/share/icons/**",
+          "$HOME/.steam/**",
+          "/usr/share/icons/**",
+          "/usr/share/pixmaps/**",
+          "/opt/**"
         ],
         "enable": true
       }
