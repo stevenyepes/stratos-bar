@@ -5,6 +5,7 @@
     
     <!-- Search input -->
     <div class="search-container">
+      <div v-if="isFileSearchMode" class="search-mode-badge scale-in">FILE SEARCH</div>
       <input
         ref="searchInput"
         v-model="query"
@@ -19,150 +20,164 @@
       />
     </div>
 
-    <!-- Empty state (Default Items) -->
-    <div v-if="!query" class="results-container custom-scrollbar fade-in">
-       <div class="results-section">
-         <div class="section-header">SUGGESTED</div>
-         <div 
-           class="result-item glass-hover interactive"
-           :class="{'result-item-active': selectedIndex === 0}"
-           @click="showSettings = true"
-         >
-           <div class="result-icon">⚙️</div>
-           <div class="result-content">
-             <div class="result-title">Settings</div>
-             <div class="result-subtitle text-dim">Configure appearance, shortcuts, and AI</div>
-           </div>
-           <div class="result-hint text-dimmer">[↵]</div>
-         </div>
-       </div>
-    </div>
+    <!-- Main Content Area -->
+    <div class="main-content">
+        <!-- Results Column -->
+        <div class="results-col custom-scrollbar">
+            <!-- Empty state (Default Items) -->
+            <div v-if="!query" class="results-section">
+                 <div class="section-header">SUGGESTED</div>
+                 <div 
+                   class="result-item glass-hover interactive"
+                   :class="{'result-item-active': selectedIndex === 0}"
+                   @click="showSettings = true"
+                 >
+                   <div class="result-icon">⚙️</div>
+                   <div class="result-content">
+                     <div class="result-title">Settings</div>
+                     <div class="result-subtitle text-dim">Configure appearance, shortcuts, and AI</div>
+                   </div>
+                   <div class="result-hint text-dimmer">[↵]</div>
+                 </div>
+            </div>
 
-    <!-- Results -->
-    <div v-else class="results-container custom-scrollbar fade-in">
-      
-      <!-- AI Actions Section -->
-      <div v-if="matchedTool || query" class="results-section">
-        <div class="section-header">{{ topSectionHeader }}</div>
-        
-        <!-- Special Result: Currency -->
-        <CurrencyResult 
-          v-if="matchedTool && matchedTool.data && matchedTool.data.type === 'currency'"
-          :data="matchedTool.data"
-          @execute="executeAction(0)"
-          @swap="swapCurrencyQuery(matchedTool.data)"
-        />
+            <!-- Results -->
+            <div v-else>
+              <!-- AI Actions Section -->
+              <div v-if="matchedTool || query" class="results-section">
+                <!-- ... AI items same as before ... -->
+                <div class="section-header">{{ topSectionHeader }}</div>
+                
+                <CurrencyResult 
+                  v-if="matchedTool && matchedTool.data && matchedTool.data.type === 'currency'"
+                  :data="matchedTool.data"
+                  @execute="executeAction(0)"
+                  @swap="swapCurrencyQuery(matchedTool.data)"
+                />
 
-        <!-- Matched AI Tool/Skill (Standard) -->
-        <div 
-          v-else-if="matchedTool"
-          class="result-item ai-action-item interactive"
-          :class="{'result-item-active': selectedIndex === 0}"
-          @click="executeAction(0)"
-        >
-          <div class="result-icon ai-icon-glow">{{ matchedTool.icon || '✨' }}</div>
-          <div class="result-content">
-            <div class="result-title text-gradient">{{ matchedTool.name }}</div>
-            <div class="result-subtitle text-dim">{{ matchedTool.description }}</div>
-          </div>
-          <div class="result-hint text-dimmer">[↵]</div>
+                <div 
+                  v-else-if="matchedTool"
+                  class="result-item ai-action-item interactive"
+                  :class="{'result-item-active': selectedIndex === 0}"
+                  @click="executeAction(0)"
+                >
+                  <div class="result-icon ai-icon-glow">{{ matchedTool.icon || '✨' }}</div>
+                  <div class="result-content">
+                    <div class="result-title text-gradient">{{ matchedTool.name }}</div>
+                    <div class="result-subtitle text-dim">{{ matchedTool.description }}</div>
+                  </div>
+                  <div class="result-hint text-dimmer">[↵]</div>
+                </div>
+
+                <div 
+                  v-else
+                  class="result-item ai-action-item interactive"
+                  :class="{'result-item-active': selectedIndex === 0}"
+                  @click="askAI()"
+                >
+                  <div class="result-icon ai-icon-glow">🤖</div>
+                  <div class="result-content">
+                    <div class="result-title text-gradient">Ask AI: "{{ query }}"</div>
+                    <div class="result-subtitle text-dim">Get instant answers</div>
+                  </div>
+                  <div class="result-hint text-dimmer"><span class="mr-2 text-xs opacity-70">[Ctrl+N]</span> [↵]</div>
+                </div>
+              </div>
+
+              <!-- Open Windows -->
+              <div v-if="filteredWindows.length" class="results-section">
+                <div class="section-header">OPEN APPS</div>
+                <div
+                  v-for="(win, index) in filteredWindows"
+                  :key="'win-'+index"
+                  class="result-item glass-hover interactive"
+                  :class="{'result-item-active': selectedIndex === (1 + index)}"
+                  @click="focusWindow(win)"
+                >
+                  <div class="result-icon">
+                    <img v-if="win.icon" :src="convertFileSrc(win.icon)" width="24" height="24" />
+                    <span v-else>🔲</span>
+                  </div>
+                  <div class="result-content">
+                    <div class="result-title" v-html="highlightMatch(win.title)"></div>
+                    <div class="result-subtitle text-dim">Switch to {{ win.class }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Applications -->
+              <div v-if="filteredApps.length" class="results-section">
+                <div class="section-header">APPLICATIONS</div>
+                <div
+                  v-for="(app, index) in filteredApps"
+                  :key="'app-'+index"
+                  class="result-item glass-hover interactive"
+                  :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + index)}"
+                  @click="executeApp(app)"
+                >
+                  <div class="result-icon">
+                    <img v-if="app.icon" :src="convertFileSrc(app.icon)" width="24" height="24" />
+                    <span v-else>📦</span>
+                  </div>
+                  <div class="result-content">
+                    <div class="result-title" v-html="highlightMatch(app.name)"></div>
+                    <div class="result-subtitle text-dim">{{ app.exec }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Scripts -->
+              <div v-if="filteredScripts.length" class="results-section">
+                <div class="section-header">SCRIPTS</div>
+                <div
+                  v-for="(script, index) in filteredScripts"
+                  :key="'script-'+index"
+                  class="result-item glass-hover interactive"
+                  :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + filteredApps.length + index)}"
+                  @click="executeScript(script)"
+                >
+                  <div class="result-icon text-success">
+                      <v-icon icon="mdi-console-line" size="20"></v-icon>
+                  </div>
+                  <div class="result-content">
+                    <div class="result-title" v-html="highlightMatch(script.alias)"></div>
+                    <div class="result-subtitle text-dim font-mono text-xs">{{ script.path }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Files -->
+              <div v-if="files.length" class="results-section">
+                <div class="section-header">FILES</div>
+                <div
+                  v-for="(file, index) in files"
+                  :key="'file-'+index"
+                  class="result-item glass-hover interactive"
+                  :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + filteredApps.length + filteredScripts.length + index)}"
+                  @click="executeFile(file)"
+                >
+                  <div class="result-icon">
+                      <v-icon :icon="getFileIcon(file)" :class="getFileColor(file)" size="20"></v-icon>
+                  </div>
+                  <div class="result-content">
+                    <div class="result-title" v-html="highlightMatch(getFileName(file))"></div>
+                    <div class="result-subtitle text-dim text-xs truncate">{{ file }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
         </div>
 
-        <!-- General AI  -->
-        <div 
-          v-else
-          class="result-item ai-action-item interactive"
-          :class="{'result-item-active': selectedIndex === 0}"
-          @click="askAI()"
-        >
-          <div class="result-icon ai-icon-glow">🤖</div>
-          <div class="result-content">
-            <div class="result-title text-gradient">Ask AI: "{{ query }}"</div>
-            <div class="result-subtitle text-dim">Get instant answers</div>
-          </div>
-          <div class="result-hint text-dimmer"><span class="mr-2 text-xs opacity-70">[Ctrl+N]</span> [↵]</div>
-        </div>
-      </div>
-
-      <!-- Open Windows -->
-      <div v-if="filteredWindows.length" class="results-section">
-        <div class="section-header">OPEN APPS</div>
-        <div
-          v-for="(win, index) in filteredWindows"
-          :key="'win-'+index"
-          class="result-item glass-hover interactive"
-          :class="{'result-item-active': selectedIndex === (1 + index)}"
-          @click="focusWindow(win)"
-        >
-          <div class="result-icon">
-            <img v-if="win.icon" :src="convertFileSrc(win.icon)" width="24" height="24" />
-            <span v-else>🔲</span>
-          </div>
-          <div class="result-content">
-            <div class="result-title">{{ win.title }}</div>
-            <div class="result-subtitle text-dim">Switch to {{ win.class }}</div>
+        <!-- Preview Column -->
+        <div v-if="isFileSearchMode" class="preview-col">
+          <FilePreview v-if="selectedFile" :file-path="selectedFile" />
+          <div v-else class="d-flex align-center justify-center h-100 text-dimmer">
+              <div class="text-center">
+                  <v-icon icon="mdi-file-search-outline" size="64" class="mb-4 opacity-50"></v-icon>
+                  <div>Select a file to preview</div>
+              </div>
           </div>
         </div>
-      </div>
-
-      <!-- System Commands / Apps -->
-      <div v-if="filteredApps.length" class="results-section">
-        <div class="section-header">APPLICATIONS</div>
-        <div
-          v-for="(app, index) in filteredApps"
-          :key="'app-'+index"
-          class="result-item glass-hover interactive"
-          :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + index)}"
-          @click="executeApp(app)"
-        >
-          <div class="result-icon">
-            <img v-if="app.icon" :src="convertFileSrc(app.icon)" width="24" height="24" />
-            <span v-else>📦</span>
-          </div>
-          <div class="result-content">
-            <div class="result-title">{{ app.name }}</div>
-            <div class="result-subtitle text-dim">{{ app.exec }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Scripts -->
-      <div v-if="filteredScripts.length" class="results-section">
-        <div class="section-header">SCRIPTS</div>
-        <div
-          v-for="(script, index) in filteredScripts"
-          :key="'script-'+index"
-          class="result-item glass-hover interactive"
-          :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + filteredApps.length + index)}"
-          @click="executeScript(script)"
-        >
-          <div class="result-icon text-success">
-              <v-icon icon="mdi-console-line" size="20"></v-icon>
-          </div>
-          <div class="result-content">
-            <div class="result-title">{{ script.alias }}</div>
-            <div class="result-subtitle text-dim font-mono text-xs">{{ script.path }} {{script.args || ''}}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Files -->
-      <div v-if="files.length" class="results-section">
-        <div class="section-header">FILES</div>
-        <div
-          v-for="(file, index) in files"
-          :key="'file-'+index"
-          class="result-item glass-hover interactive"
-          :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + filteredApps.length + filteredScripts.length + index)}"
-          @click="executeFile(file)"
-        >
-          <div class="result-icon">📄</div>
-          <div class="result-content">
-            <div class="result-title">{{ getFileName(file) }}</div>
-            <div class="result-subtitle text-dim text-xs truncate">{{ file }}</div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Footer with settings -->
@@ -193,6 +208,11 @@ const {
 
 const { askAI, executeAiTool, executeSkill } = useAI()
 const { executeScript } = useScriptRunner()
+
+
+const isFileSearchMode = computed(() => {
+  return query.value && query.value.trim().toLowerCase().startsWith('ff ')
+})
 
 // Computed totals for navigation calculation
 const isDefaultState = computed(() => !query.value)
@@ -299,18 +319,64 @@ function getFileName(path) {
   return path.split('/').pop()
 }
 
-function swapCurrencyQuery(data) {
-  if (!data) return
-  query.value = `${data.amount} ${data.to} to ${data.from}`
+// ... imports
+import FilePreview from './FilePreview.vue'
+
+// ... existing code ...
+
+const selectedFile = computed(() => {
+  if (!isFileSearchMode.value) return null
   
-  nextTick(() => {
-    if (searchInput.value) searchInput.value.focus()
-  })
+  // Calculate offset to find if we are on a file
+  // Order: Windows -> Apps -> Scripts -> Files
+  // Check executeAction logic for offsets
+  
+  let offset = 1; // Settings/AI
+  offset += filteredWindows.value.length
+  offset += filteredApps.value.length
+  offset += filteredScripts.value.length
+  
+  const fileIndex = selectedIndex.value - offset
+  if (fileIndex >= 0 && fileIndex < files.value.length) {
+    return files.value[fileIndex]
+  }
+  return null
+})
+
+function highlightMatch(text) {
+  if (!query.value) return text
+  // Remove "ff " if in file mode
+  let q = query.value
+  if (isFileSearchMode.value) q = q.substring(3).trim()
+  if (!q) return text
+  
+  const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+  return text.replace(regex, '<span class="text-gradient">$1</span>')
 }
+
+function getFileIcon(path) {
+    const ext = path.split('.').pop().toLowerCase()
+    if (['png','jpg','jpeg','webp','gif','svg'].includes(ext)) return 'mdi-image'
+    if (['mp4','mkv','avi','mov','webm'].includes(ext)) return 'mdi-movie'
+    if (['mp3','wav','ogg'].includes(ext)) return 'mdi-music'
+    if (['js','ts','vue','py','rs','html','css','json','c','cpp'].includes(ext)) return 'mdi-code-braces'
+    if (ext === 'pdf') return 'mdi-file-pdf-box'
+    if (ext === 'md') return 'mdi-language-markdown'
+    return 'mdi-file'
+}
+
+function getFileColor(path) {
+    const ext = path.split('.').pop().toLowerCase()
+    if (['png','jpg','jpeg','webp','gif','svg'].includes(ext)) return 'text-purple-300'
+    if (['mp4','mkv','avi','mov','webm'].includes(ext)) return 'text-red-300'
+    if (['js','ts','vue','py','rs'].includes(ext)) return 'text-yellow-300'
+    return 'text-blue-300'
+}
+
 </script>
 
 <style scoped>
-/* Copied from App.vue */
+/* Copied from App.vue and Adapted */
 .omnibar-search-mode {
   width: 100%;
   max-width: 100%;
@@ -335,6 +401,21 @@ function swapCurrencyQuery(data) {
   padding: 0 var(--space-6);
   padding-bottom: var(--space-4);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.search-mode-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(122, 162, 247, 0.2);
+  color: var(--theme-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  border: 1px solid rgba(122, 162, 247, 0.3);
+  white-space: nowrap;
 }
 
 .search-input {
@@ -351,13 +432,31 @@ function swapCurrencyQuery(data) {
   color: var(--theme-text-dimmer);
 }
 
-.results-container {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 var(--space-4) var(--space-4);
+/* MAIN LAYOUT */
+.main-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
 }
 
+.results-col {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-4);
+  min-width: 0; 
+}
+
+/* Dual Pane Overlay */
+.preview-col {
+  width: 60%;
+  border-left: 1px solid var(--theme-border);
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+}
+
+/* File Search Improvements */
 .results-section {
   margin-bottom: var(--space-4);
 }
@@ -381,6 +480,7 @@ function swapCurrencyQuery(data) {
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
   background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid transparent; 
 }
 
 .result-item:hover {
@@ -388,9 +488,10 @@ function swapCurrencyQuery(data) {
 }
 
 .result-item-active {
-  background: rgba(122, 162, 247, 0.25) !important;
-  border: 1px solid rgba(122, 162, 247, 0.5);
-  box-shadow: 0 0 0 1px rgba(122, 162, 247, 0.3);
+  background: rgba(122, 162, 247, 0.15) !important;
+  border-left: 2px solid var(--theme-primary); 
+  /* Glow effect */
+  box-shadow: inset 10px 0 20px -10px rgba(122, 162, 247, 0.2);
 }
 
 .result-icon {
@@ -456,4 +557,8 @@ function swapCurrencyQuery(data) {
 
 .ml-2 { margin-left: var(--space-2); }
 .text-xs { font-size: var(--font-size-xs); }
+.text-purple-300 { color: #d8b4fe; }
+.text-red-300 { color: #fca5a5; }
+.text-yellow-300 { color: #fde047; }
+.text-blue-300 { color: #93c5fd; }
 </style>

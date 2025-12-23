@@ -55,6 +55,11 @@ export function useOmnibar() {
                 height = CHAT_HEIGHT
             } else if (uiState.value === 'searching') {
                 height = EXPANDED_HEIGHT
+                // Check if file search mode
+                if (query.value && query.value.trim().toLowerCase().startsWith('ff ')) {
+                    // Dual pane width
+                    width = Math.max(1000, Math.floor(width * 1.4))
+                }
             } else if (uiState.value === 'executing') {
                 height = EXPANDED_HEIGHT
             }

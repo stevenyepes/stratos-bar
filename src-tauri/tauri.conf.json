@@ -31,7 +31,8 @@
           "$HOME/.steam/**",
           "/usr/share/icons/**",
           "/usr/share/pixmaps/**",
-          "/opt/**"
+          "/opt/**",
+          "$HOME/**"
         ],
         "enable": true
       }

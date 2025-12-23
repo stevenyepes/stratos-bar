@@ -60,6 +60,8 @@ pub fn run() {
             commands::system::greet,
             commands::system::search_files,
             commands::system::open_entity,
+            commands::system::read_file_preview,
+            commands::system::get_file_metadata,
             commands::system::get_selection_context,
             commands::system::copy_to_clipboard,
             commands::system::check_is_executable,

@@ -22,6 +22,7 @@
           "/usr/share/icons/**",
           "/usr/share/pixmaps/**",
           "$HOME/.local/share/icons/**",
+          "$HOME/.config/**",
           "$HOME/.steam/root/appcache/librarycache/**",
           "$HOME/**"
         ]
@@ -34,7 +35,9 @@
           "/usr/share/icons/**",
           "/usr/share/pixmaps/**",
           "$HOME/.local/share/icons/**",
-          "$HOME/.steam/root/appcache/librarycache/**"
+          "$HOME/.config/**",
+          "$HOME/.steam/root/appcache/librarycache/**",
+          "$HOME/**"
         ]
       }
     }
