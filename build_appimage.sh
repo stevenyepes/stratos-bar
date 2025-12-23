@@ -10,7 +10,7 @@ if [ $? -eq 0 ]; then
     echo "----------------------------------------------------------------"
     echo "Build Successful!"
     echo "AppImage location:"
-    echo "./src-tauri/target/release/bundle/appimage/stratos-bar_0.1.0_amd64.AppImage"
+    echo "./src-tauri/target/release/bundle/appimage/stratos-bar_0.1.1_amd64.AppImage"
     echo "----------------------------------------------------------------"
 else
     echo "Build Failed!"

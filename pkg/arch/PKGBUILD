@@ -1,6 +1,6 @@
 # Maintainer: Steven Yepes
 pkgname=stratos-bar
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="A sophisticated command palette for power users"
 arch=('x86_64')
@@ -21,7 +21,7 @@ pkgver() {
     # Generate version based on package.json or git tag
     # For now, just use the hardcoded version or a git revision
     # printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
-    echo "0.1.0"
+    echo "0.1.1"
 }
 
 prepare() {

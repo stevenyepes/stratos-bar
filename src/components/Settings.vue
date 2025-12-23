@@ -39,7 +39,7 @@
               <transition name="fade">
                 <span v-if="showSaved" class="saved-indicator text-caption text-success mr-4">✓ Saved</span>
               </transition>
-              <span class="text-caption text-disabled mr-4">v0.1.0</span>
+              <span class="text-caption text-disabled mr-4">v0.1.1</span>
               <v-btn variant="text" class="text-none" @click="$emit('update:modelValue', false)">Done</v-btn>
             </div>
 

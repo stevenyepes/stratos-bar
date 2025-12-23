@@ -185,20 +185,20 @@ StratosBar supports multiple Linux distributions. Download the latest release fr
 ### Ubuntu / Debian
 Download the `.deb` package and install:
 ```bash
-sudo apt install ./stratos-bar_0.1.0_amd64.deb
+sudo apt install ./stratos-bar_0.1.1_amd64.deb
 ```
 
 ### Fedora / RHEL
 Download the `.rpm` package and install:
 ```bash
-sudo dnf install ./stratos-bar-0.1.0-1.x86_64.rpm
+sudo dnf install ./stratos-bar-0.1.1-1.x86_64.rpm
 ```
 
 ### AppImage (Universal)
 Download the `.AppImage` file, make it executable, and run:
 ```bash
-chmod +x stratos-bar_0.1.0_amd64.AppImage
-./stratos-bar_0.1.0_amd64.AppImage
+chmod +x stratos-bar_0.1.1_amd64.AppImage
+./stratos-bar_0.1.1_amd64.AppImage
 ```
 
 ### Arch Linux
@@ -718,7 +718,7 @@ Bind a key (usually Super+Space) to execute the AppImage or binary.
 
 ```ini
 # Replace with the actual path to your AppImage or binary
-bind = $mainMod, SPACE, exec, /path/to/stratos-bar_0.1.0_amd64.AppImage
+bind = $mainMod, SPACE, exec, /path/to/stratos-bar_0.1.1_amd64.AppImage
 ```
 
 ---
