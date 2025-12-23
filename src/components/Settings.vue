@@ -287,6 +287,54 @@
                   </v-card>
                 </div>
 
+                <!-- Scripts Editor -->
+                <div v-if="activeTab === 'scripts'" key="scripts">
+                  <div class="d-flex align-center mb-4">
+                     <div class="section-title">Custom Scripts</div>
+                    <v-spacer></v-spacer>
+                    <v-btn prepend-icon="mdi-plus" color="primary" variant="tonal" class="text-none" @click="openScriptEditor(null)">Add New Script</v-btn>
+                  </div>
+                  
+                  <div v-if="!config.scripts || config.scripts.length === 0" class="d-flex flex-column align-center justify-center py-12 text-medium-emphasis">
+                      <v-icon icon="mdi-script-text-outline" size="64" class="mb-4 opacity-50"></v-icon>
+                      <div class="text-h6 font-weight-regular">No scripts configured</div>
+                      <div class="text-caption">Add shell scripts to execute them from the command palette</div>
+                  </div>
+
+                  <div class="tool-grid">
+                    <v-card 
+                      v-for="(script, i) in config.scripts" 
+                      :key="i"
+                      class="tool-card border-thin"
+                      flat
+                      @click="openScriptEditor(script, i)"
+                    >
+                      <div class="d-flex flex-column fill-height pa-4">
+                        <div class="d-flex align-start mb-2">
+                          <v-avatar color="secondary" variant="tonal" rounded size="40" class="mr-3">
+                            <v-icon icon="mdi-console-line" size="24"></v-icon>
+                          </v-avatar>
+                          <div class="text-truncate">
+                            <div class="text-subtitle-2 font-weight-bold text-truncate">{{ script.alias }}</div>
+                            <div class="text-caption text-medium-emphasis text-truncate font-mono">{{ script.path }}</div>
+                          </div>
+                          <v-spacer></v-spacer>
+                        </div>
+                        
+                        <v-spacer></v-spacer>
+                        
+                        <div class="d-flex align-center mt-2 pt-2 border-t-thin">
+                           <div class="d-flex gap-1 overflow-hidden mr-2">
+                             <v-chip v-if="script.args" size="x-small" density="comfortable" variant="flat" class="bg-surface-light font-mono text-truncate" style="max-width: 150px">{{ script.args }}</v-chip>
+                           </div>
+                           <v-spacer></v-spacer>
+                           <v-btn icon="mdi-delete-outline" variant="text" size="small" density="compact" color="error" @click.stop="deleteScript(i)"></v-btn>
+                        </div>
+                      </div>
+                    </v-card>
+                  </div>
+                </div>
+
               </v-fade-transition>
               </v-container>
             </div>
@@ -340,6 +388,59 @@
         </v-card>
     </v-dialog>
       
+    <!-- Script Editor Dialog -->
+    <v-dialog v-model="scriptEditor.show" max-width="500" scrim="black opacity-80">
+        <v-card class="rounded-xl border-thin bg-surface-dialog">
+            <v-card-title class="px-6 pt-6 text-h6 font-weight-bold">{{ scriptEditor.isNew ? 'New Custom Script' : 'Edit Script' }}</v-card-title>
+            <v-card-text class="px-6 pt-4">
+                <v-text-field 
+                  v-model="scriptEditor.data.alias" 
+                  label="Command Alias" 
+                  placeholder="e.g. deploy-dev" 
+                  variant="outlined" 
+                  density="comfortable" 
+                  class="mb-3 custom-input"
+                  autofocus
+                ></v-text-field>
+                
+                <div class="d-flex gap-2 align-center mb-1">
+                     <v-text-field 
+                        v-model="scriptEditor.data.path" 
+                        label="Script Path" 
+                        placeholder="/path/to/script.sh" 
+                        variant="outlined" 
+                        density="comfortable" 
+                        hide-details="auto"
+                        class="custom-input flex-grow-1"
+                        @update:model-value="checkScriptPermissions"
+                    ></v-text-field>
+                    <v-btn variant="tonal" height="48" class="text-none" @click="browseScript">Browse</v-btn>
+                </div>
+
+                <div v-if="scriptPermissionWarning" class="d-flex align-center mb-3 ml-1 text-caption text-warning animate-in">
+                    <v-icon icon="mdi-alert" size="small" class="mr-1"></v-icon>
+                    <span>Warning: Script is not executable. </span>
+                    <button class="ml-1 text-decoration-underline font-weight-bold interactive hover-opacity" @click="fixScriptPermissions">Click to fix.</button>
+                </div>
+                <div v-else class="mb-3"></div>
+
+                <v-text-field 
+                  v-model="scriptEditor.data.args" 
+                  label="Arguments (Optional)" 
+                  placeholder="--verbose" 
+                  variant="outlined" 
+                  density="comfortable" 
+                  class="mb-3 custom-input"
+                ></v-text-field>
+            </v-card-text>
+            <v-card-actions class="px-6 pb-6 pt-2">
+                <v-spacer></v-spacer>
+                <v-btn variant="text" class="text-none" @click="scriptEditor.show = false">Cancel</v-btn>
+                <v-btn color="primary" variant="flat" class="px-6 text-none" @click="saveScript">Save Script</v-btn>
+            </v-card-actions>
+        </v-card>
+    </v-dialog>
+
     <!-- Shortcut Editor Dialog -->
     <v-dialog v-model="shortcutEditor.show" max-width="400" scrim="black opacity-80">
         <v-card class="rounded-xl border-thin bg-surface-dialog">
@@ -378,6 +479,7 @@
 <script setup>
 import { ref, watch, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 import { themePresets, applyTheme } from '../theme'
 import { useTheme } from 'vuetify'
 import { MatugenSkill } from '../skills/builtin/MatugenSkill'
@@ -393,6 +495,7 @@ const menuItems = [
   { title: 'General & AI', value: 'general', icon: 'mdi-cog-outline' },
   { title: 'Appearance', value: 'appearance', icon: 'mdi-palette-outline' },
   { title: 'AI Tools', value: 'tools', icon: 'mdi-robot-outline' },
+  { title: 'Scripts', value: 'scripts', icon: 'mdi-console-line' },
   { title: 'Shortcuts', value: 'shortcuts', icon: 'mdi-keyboard-outline' }
 ]
 
@@ -404,6 +507,7 @@ const activeTitle = computed(() => {
 const config = ref({ 
     preferred_model: 'local',
     ai_tools: [], 
+    scripts: [],
     shortcuts: {},
     local_model_url: 'http://localhost:11434',
     openai_api_key: '',
@@ -520,6 +624,97 @@ function deleteShortcut(trigger) {
     delete newShortcuts[trigger]
     config.value.shortcuts = newShortcuts
     save()
+}
+
+// Script Editor
+const scriptEditor = ref({
+    show: false,
+    isNew: true,
+    index: -1,
+    data: { id: '', alias: '', path: '', args: '' }
+})
+
+function openScriptEditor(script, index) {
+    if (script) {
+        scriptEditor.value.isNew = false
+        scriptEditor.value.index = index
+        scriptEditor.value.data = JSON.parse(JSON.stringify(script))
+    } else {
+        scriptEditor.value.isNew = true
+        scriptEditor.value.index = -1
+        scriptEditor.value.data = { id: 'script_' + Date.now(), alias: '', path: '', args: '' }
+    }
+    scriptEditor.value.show = true
+    scriptPermissionWarning.value = false
+    if (script && script.path) checkScriptPermissions(script.path)
+}
+
+const scriptPermissionWarning = ref(false)
+
+async function checkScriptPermissions(path) {
+    if (!path) return
+    try {
+        const isExecutable = await invoke('check_is_executable', { path })
+        scriptPermissionWarning.value = !isExecutable
+    } catch (e) {
+        console.error('Failed to check permissions', e)
+    }
+}
+
+async function fixScriptPermissions() {
+    if (!scriptEditor.value.data.path) return
+    try {
+        await invoke('make_file_executable', { path: scriptEditor.value.data.path })
+        // Re-check
+        await checkScriptPermissions(scriptEditor.value.data.path)
+    } catch (e) {
+        console.error('Failed to fix permissions', e)
+        alert('Failed to fix permissions: ' + e)
+    }
+}
+
+async function browseScript() {
+    try {
+        const selected = await open({
+            multiple: false,
+            filters: [{
+                name: 'Scripts',
+                extensions: ['sh', 'py', 'js']
+            }]
+        })
+        if (selected) {
+            scriptEditor.value.data.path = selected
+            // Auto-fill alias if empty
+            if (!scriptEditor.value.data.alias) {
+                const filename = selected.split(/[\\/]/).pop()
+                if (filename) scriptEditor.value.data.alias = filename.split('.')[0]
+            }
+            checkScriptPermissions(selected)
+        }
+    } catch (e) {
+        console.error('Failed to open file dialog', e)
+    }
+}
+
+function saveScript() {
+    if (!scriptEditor.value.data.alias || !scriptEditor.value.data.path) return
+    
+    if (!config.value.scripts) config.value.scripts = []
+    
+    if (scriptEditor.value.isNew) {
+        config.value.scripts.push(scriptEditor.value.data)
+    } else {
+        config.value.scripts[scriptEditor.value.index] = scriptEditor.value.data
+    }
+    scriptEditor.value.show = false
+    save()
+}
+
+function deleteScript(index) {
+    if(confirm('Are you sure you want to delete this script?')) {
+        config.value.scripts.splice(index, 1)
+        save()
+    }
 }
 
 function getToolName(id) {

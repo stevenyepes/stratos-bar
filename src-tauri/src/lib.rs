@@ -9,7 +9,7 @@ use adapters::http_ai_service::HttpAiService;
 use adapters::linux_window_service::LinuxWindowService;
 use domain::ai::Message;
 use domain::apps::AppEntry;
-use domain::config::AppConfig;
+use domain::config::{AppConfig, ScriptConfig};
 use domain::windows::WindowEntry;
 use futures_util::StreamExt;
 use ports::ai_port::AiService;
@@ -20,6 +20,8 @@ use ports::window_port::WindowService;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use walkdir::WalkDir;
 
 struct AppState {
@@ -216,6 +218,75 @@ async fn open_entity(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn execute_script(
+    window: tauri::Window,
+    path: String,
+    args: Option<String>,
+) -> Result<(), String> {
+    let path = path.trim();
+    let mut cmd;
+
+    if path.ends_with(".sh") {
+        cmd = Command::new("sh");
+        cmd.arg(path);
+    } else {
+        cmd = Command::new(path);
+    }
+
+    if let Some(args_str) = args {
+        let parts = shell_words::split(&args_str).map_err(|e| e.to_string())?;
+        cmd.args(parts);
+    }
+
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn script: {}", e))?;
+
+    let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to open stderr")?;
+
+    let mut stdout_reader = BufReader::new(stdout).lines();
+    let mut stderr_reader = BufReader::new(stderr).lines();
+
+    window.emit("script-start", ()).map_err(|e| e.to_string())?;
+
+    // Spawn tasks to handle stdout and stderr concurrently
+    let window_clone1 = window.clone();
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stdout_reader.next_line().await {
+            let _ = window_clone1.emit("script-output", format!("> {}\n", line));
+        }
+    });
+
+    let window_clone2 = window.clone();
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stderr_reader.next_line().await {
+            let _ = window_clone2.emit("script-output", format!("ERR> {}\n", line));
+        }
+    });
+
+    // Wait for the child process to finish
+    let output = child.wait().await.map_err(|e| e.to_string())?;
+
+    let status_msg = if output.success() {
+        format!("> Success! (Exit code 0)\n")
+    } else {
+        format!("> Failed! (Exit code {})\n", output.code().unwrap_or(-1))
+    };
+
+    window
+        .emit("script-output", status_msg)
+        .map_err(|e| e.to_string())?;
+
+    window.emit("script-done", ()).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn ask_ai(
     window: tauri::Window,
     state: State<'_, AppState>,
@@ -266,6 +337,41 @@ async fn check_ai_connection(state: State<'_, AppState>) -> Result<String, Strin
 }
 
 #[tauri::command]
+async fn check_is_executable(path: String) -> Result<bool, String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Ok(false);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = p.metadata().map_err(|e| e.to_string())?;
+        return Ok(metadata.permissions().mode() & 0o111 != 0);
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(true) // Assume executable on non-unix for now or just return true
+    }
+}
+
+#[tauri::command]
+async fn make_file_executable(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("File not found".to_string());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = p.metadata().map_err(|e| e.to_string())?;
+        let mut perms = metadata.permissions();
+        perms.set_mode(perms.mode() | 0o111);
+        std::fs::set_permissions(p, perms).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn list_ollama_models(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let config = state.config_service.load_config();
     match state.ai_service.list_models(&config).await {
@@ -275,37 +381,9 @@ async fn list_ollama_models(state: State<'_, AppState>) -> Result<Vec<String>, S
 }
 
 #[tauri::command]
-async fn list_scripts(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let mut scripts = Vec::new();
-    if let Some(config_dir) = state.config_service.get_config_dir() {
-        let scripts_dir = config_dir.join("scripts");
-        if scripts_dir.exists() {
-            for entry in WalkDir::new(scripts_dir)
-                .max_depth(1)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                let p = entry.path();
-                if p.is_file() {
-                    // check executable bit? or just extension?
-                    // allow .sh, .py, .js or no extension
-                    #[cfg(unix)]
-                    use std::os::unix::fs::PermissionsExt;
-
-                    let is_executable = if let Ok(metadata) = p.metadata() {
-                        metadata.permissions().mode() & 0o111 != 0
-                    } else {
-                        false
-                    };
-
-                    if is_executable || p.extension().map_or(false, |e| e == "sh" || e == "py") {
-                        scripts.push(p.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-    }
-    Ok(scripts)
+async fn list_scripts(state: State<'_, AppState>) -> Result<Vec<ScriptConfig>, String> {
+    let config = state.config_service.load_config();
+    Ok(config.scripts)
 }
 
 #[tauri::command]
@@ -427,12 +505,15 @@ pub fn run() {
             save_config,
             ask_ai,
             list_scripts,
+            execute_script,
             list_ollama_models,
             get_selection_context,
             copy_to_clipboard,
             list_windows,
             focus_window,
-            check_ai_connection
+            check_ai_connection,
+            check_is_executable,
+            make_file_executable
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -446,5 +527,41 @@ mod tests {
     fn test_greet() {
         let result = greet("World");
         assert_eq!(result, "Hello, World! You've been greeted from Rust!");
+    }
+
+    #[tokio::test]
+    async fn test_execute_script_logic() {
+        // Create a temp script
+        let temp_dir = std::env::temp_dir();
+        let script_path = temp_dir.join("test_script.sh");
+
+        // Write content
+        std::fs::write(&script_path, "#!/bin/sh\necho 'Hello form test'").unwrap();
+
+        // Make executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script_path, perms).unwrap();
+        }
+
+        // Try to execute using Command
+        let output = tokio::process::Command::new(&script_path).output().await;
+
+        // Clean up
+        let _ = std::fs::remove_file(&script_path);
+
+        match output {
+            Ok(o) => {
+                if !o.status.success() {
+                    panic!("Script failed with status: {:?}", o.status);
+                }
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                assert!(stdout.contains("Hello form test"));
+            }
+            Err(e) => panic!("Failed to execute: {}", e),
+        }
     }
 }

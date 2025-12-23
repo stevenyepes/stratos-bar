@@ -1,10 +1,10 @@
 <template>
   <v-app theme="dark" style="height: 100vh; background: transparent;">
     <v-main class="pa-0" style="height: 100vh; background: transparent;">
-      <div class="omnibar-container" :class="{'omnibar-expanded': uiState !== 'idle'}">
+      <div class="omnibar-container" :class="{'omnibar-expanded': uiState !== 'idle', 'omnibar-executing': uiState === 'executing'}">
         
         <!-- State 1: Idle / State 2: Searching -->
-        <div v-if="uiState !== 'chatting'" class="omnibar-search-mode scale-in">
+        <div v-if="uiState === 'idle' || uiState === 'searching'" class="omnibar-search-mode scale-in">
           
           <!-- Drag handle -->
           <div data-tauri-drag-region class="drag-handle"></div>
@@ -143,10 +143,12 @@
                 :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + filteredApps.length + index)}"
                 @click="executeScript(script)"
               >
-                <div class="result-icon">📜</div>
+                <div class="result-icon text-success">
+                    <v-icon icon="mdi-console-line" size="20"></v-icon>
+                </div>
                 <div class="result-content">
-                  <div class="result-title">{{ getFileName(script) }}</div>
-                  <div class="result-subtitle text-dim font-mono">{{ script }}</div>
+                  <div class="result-title">{{ script.alias }}</div>
+                  <div class="result-subtitle text-dim font-mono text-xs">{{ script.path }} {{script.args || ''}}</div>
                 </div>
               </div>
             </div>
@@ -180,7 +182,7 @@
         </div>
 
         <!-- State 3: Chat Mode -->
-        <div v-else class="omnibar-chat-mode scale-in">
+        <div v-else-if="uiState === 'chatting'" class="omnibar-chat-mode scale-in">
           
           <!-- Chat Header -->
           <div data-tauri-drag-region class="chat-header">
@@ -261,6 +263,30 @@
           </div>
         </div>
 
+        <!-- State 4: Script Execution Mode -->
+        <div v-else-if="uiState === 'executing'" class="omnibar-terminal-mode scale-in">
+            <div class="terminal-header" data-tauri-drag-region>
+                <div class="d-flex align-center">
+                    <v-icon icon="mdi-console-line" size="small" class="mr-2 text-success script-pulse"></v-icon>
+                    <span class="text-subtitle-2 font-mono text-success">Running script...</span>
+                </div>
+                <v-spacer></v-spacer>
+                <div v-if="scriptRunning" class="text-caption text-dimmer mr-2">
+                    <v-progress-circular indeterminate color="success" size="16" width="2"></v-progress-circular>
+                </div>
+            </div>
+            <div ref="terminalOutputRef" class="terminal-output custom-scrollbar font-mono text-caption">
+                <div class="mb-2 text-medium-emphasis">> Executing: {{ currentScript?.alias }} {{ currentScript?.args || '' }}</div>
+                <pre class="terminal-text">{{ scriptOutput }}</pre>
+                <div v-if="scriptError" class="mt-2 font-weight-bold" style="color: #ef4444;">
+                    > Error: {{ scriptError }}
+                </div>
+            </div>
+            <div class="terminal-footer">
+                <span class="text-caption text-dimmer">[Esc] to Close</span>
+            </div>
+        </div>
+
         <!-- Settings Component (Overlay) -->
         <Settings 
           v-model="showSettings" 
@@ -298,6 +324,13 @@ const query = ref('')
 const chatInput = ref('')
 const chatMessages = ref([])
 const chatLoading = ref(false)
+
+// Script Execution State
+const scriptOutput = ref('')
+const scriptRunning = ref(false)
+const scriptError = ref(null)
+const currentScript = ref(null)
+const terminalOutputRef = ref(null)
 
 // Data
 const apps = ref([])
@@ -377,9 +410,28 @@ async function setupAiListeners() {
   }))
   
   unlisteners.push(await listen('ai-response-error', (event) => {
-    chatLoading.value = false
     chatMessages.value.push({ role: 'assistant', content: 'Error: ' + event.payload })
     scrollToBottom()
+  }))
+
+  unlisteners.push(await listen('script-start', () => {
+      scriptRunning.value = true
+      scriptOutput.value = ''
+      scriptError.value = null
+  }))
+
+  unlisteners.push(await listen('script-output', (event) => {
+      scriptOutput.value += event.payload
+      // Scroll terminal to bottom
+      nextTick(() => {
+          if (terminalOutputRef.value) {
+              terminalOutputRef.value.scrollTop = terminalOutputRef.value.scrollHeight
+          }
+      })
+  }))
+
+  unlisteners.push(await listen('script-done', () => {
+      scriptRunning.value = false
   }))
 }
 
@@ -450,6 +502,9 @@ async function reloadConfig() {
 
 function handleConfigUpgrade(newConfig) {
   config.value = newConfig
+  if (newConfig.scripts) {
+      scripts.value = newConfig.scripts
+  }
 }
 
 // Watch query to update UI state
@@ -475,7 +530,7 @@ watch(query, (newVal) => {
           app.name.toLowerCase().includes(newVal.toLowerCase()) || 
           app.exec.toLowerCase().includes(newVal.toLowerCase())
       );
-      const hasScripts = scripts.value.some(s => s.toLowerCase().includes(newVal.toLowerCase()));
+      const hasScripts = scripts.value.some(s => s.alias.toLowerCase().includes(newVal.toLowerCase()));
       
       if (hasWindows || hasApps || hasScripts) {
           selectedIndex.value = 1
@@ -560,6 +615,8 @@ async function updateWindowSize() {
       height = CHAT_HEIGHT
     } else if (uiState.value === 'searching') {
       height = EXPANDED_HEIGHT
+    } else if (uiState.value === 'executing') {
+        height = EXPANDED_HEIGHT // Or specialized terminal height
     }
     
     
@@ -660,7 +717,7 @@ const filteredApps = computed(() => {
 
 const filteredScripts = computed(() => {
   if (!query.value) return scripts.value
-  return scripts.value.filter(s => s.toLowerCase().includes(query.value.toLowerCase()))
+  return scripts.value.filter(s => s.alias.toLowerCase().includes(query.value.toLowerCase()))
 })
 
 const totalItems = computed(() => {
@@ -783,12 +840,21 @@ async function executeSkill(match) {
   }
 }
 
-async function executeScript(path) {
+
+async function executeScript(script) {
   try {
-    await invoke('launch_app', { execCmd: path }) 
-    await hideWindow()
+    currentScript.value = script
+    uiState.value = 'executing'
+    scriptError.value = null
+    updateWindowSize()
+    
+    await invoke('execute_script', { path: script.path, args: script.args }) 
+    
+    // Don't auto-close, let user see output
   } catch(e) {
     console.error(e)
+    scriptError.value = e
+    scriptRunning.value = false
   }
 }
 
@@ -1398,5 +1464,58 @@ function swapCurrencyQuery(data) {
 .markdown-body pre code {
   background: transparent;
   padding: 0;
+}
+</style>
+
+<style>
+/* Global styles for neon effect */
+.omnibar-executing {
+    box-shadow: 0 0 0 1px #4ade80, 0 0 20px rgba(74, 222, 128, 0.4) !important;
+    border-color: #4ade80 !important;
+}
+
+.omnibar-terminal-mode {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #0f1115; /* Dark terminal background */
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    position: relative;
+    box-shadow: var(--shadow-xl);
+    border: 1px solid var(--theme-border);
+}
+
+.terminal-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.terminal-output {
+    flex-grow: 1;
+    padding: 16px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    color: #e2e8f0;
+}
+
+.terminal-footer {
+    padding: 8px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+    text-align: right;
+}
+
+.script-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {opacity: 1;}
+  50% {opacity: 0.5;}
 }
 </style>

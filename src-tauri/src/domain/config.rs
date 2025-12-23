@@ -14,6 +14,14 @@ pub struct ThemeConfig {
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct ScriptConfig {
+    pub id: String,
+    pub alias: String,
+    pub path: String,
+    pub args: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct AiTool {
     pub id: String,
     pub name: String,
@@ -35,6 +43,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub shortcuts: HashMap<String, String>, // trigger -> tool_id or app_name
+
+    #[serde(default)]
+    pub scripts: Vec<ScriptConfig>,
 
     pub theme: Option<ThemeConfig>,
 }
