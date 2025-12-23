@@ -59,8 +59,9 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { listen } from '@tauri-apps/api/event'
+import { backend } from '../adapters/tauriBackend'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/atom-one-dark.css'
@@ -78,6 +79,7 @@ const messages = ref([])
 const input = ref('')
 const loading = ref(false)
 const messagesContainer = ref(null)
+const unlisteners = ref([])
 
 // Configure marked with highlight.js and custom renderer
 const renderer = new marked.Renderer()
@@ -105,11 +107,43 @@ renderer.code = ({ text, lang }) => {
 
 marked.use({ renderer })
 
-onMounted(() => {
+onMounted(async () => {
+    // Setup listeners
+    const unlistenStart = await listen('ai-response-start', () => {
+        messages.value.push({ role: 'assistant', content: '' })
+        loading.value = true // Should already be true, but ensure it
+    })
+    
+    const unlistenChunk = await listen('ai-response-chunk', (event) => {
+        // Appending to last message
+        const lastMsg = messages.value[messages.value.length - 1]
+        if (lastMsg && lastMsg.role === 'assistant') {
+            lastMsg.content += event.payload
+            scrollToBottom()
+        }
+    })
+    
+    const unlistenDone = await listen('ai-response-done', () => {
+        loading.value = false
+        scrollToBottom()
+    })
+
+    const unlistenError = await listen('ai-response-error', (event) => {
+        messages.value.push({ role: 'assistant', content: "Error: " + event.payload })
+        loading.value = false
+        scrollToBottom()
+    })
+
+    unlisteners.value.push(unlistenStart, unlistenChunk, unlistenDone, unlistenError)
+
     if (props.initialQuery) {
         messages.value.push({ role: 'user', content: props.initialQuery })
         sendMessage(null, true) 
     }
+})
+
+onUnmounted(() => {
+    unlisteners.value.forEach(unlisten => unlisten())
 })
 
 async function sendMessage(e, skipUserAdd = false) {
@@ -125,15 +159,14 @@ async function sendMessage(e, skipUserAdd = false) {
 
     try {
         const history = JSON.parse(JSON.stringify(messages.value))
-        const response = await invoke('ask_ai', { messages: history })
-        messages.value.push({ role: 'assistant', content: response })
+        // We do not await the result for content, but we await the command dispatch.
+        await backend.askAi(history)
     } catch(err) {
         console.error(err)
         messages.value.push({ role: 'assistant', content: "Error: " + err })
-    } finally {
         loading.value = false
-        scrollToBottom()
-    }
+    } 
+    // Finally block removed because loading state is managed by events
 }
 
 function scrollToBottom() {

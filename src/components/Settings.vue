@@ -587,6 +587,10 @@ async function generateFromWallpaper() {
     try {
         const result = await MatugenSkill.execute({})
         if (result && typeof result === 'string') {
+             // Reload config to sync the new theme
+             const updatedConfig = await invoke('get_config')
+             config.value = updatedConfig
+             
              showSaved.value = true
              setTimeout(() => showSaved.value = false, 2000)
         }

@@ -1,8 +1,8 @@
-import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { themeFromSourceColor, sourceColorFromImage, hexFromArgb } from '@material/material-color-utilities'
 import { applyTheme } from '../../theme'
+import { backend } from '../../adapters/tauriBackend'
 
 export const MatugenSkill = {
     id: 'matugen-theme',
@@ -60,11 +60,11 @@ export const MatugenSkill = {
                 name: 'custom-' + Date.now(),
                 primary: hexFromArgb(scheme.primary),
                 secondary: hexFromArgb(scheme.secondary),
-                background: hexFromArgb(scheme.surface), // 'surface' in Material is often the bg equivalent
-                surface: hexFromArgb(scheme.surfaceContainer), // 'surfaceContainer' is slightly lighter
+                background: hexFromArgb(scheme.surface),
+                surface: hexFromArgb(scheme.surfaceContainer),
                 text: hexFromArgb(scheme.onSurface),
                 is_custom: true,
-                source_image: file.split('/').pop() // Store filename for UI
+                source_image: file.split('/').pop()
             }
 
             // Apply immediately
@@ -72,9 +72,9 @@ export const MatugenSkill = {
 
             // Save to config
             try {
-                const config = await invoke('get_config')
+                const config = await backend.getConfig()
                 config.theme = newTheme
-                await invoke('save_config', { config })
+                await backend.saveConfig(config)
 
                 // Notify app to reload config
                 window.dispatchEvent(new CustomEvent('reload-config'))
@@ -83,13 +83,9 @@ export const MatugenSkill = {
             }
 
             // 2. Run matugen for system-wide sync
-            // Construct command. We wrap file in quotes to handle spaces.
             const safeFile = file.replace(/"/g, '\\"')
             const cmd = `matugen image "${safeFile}"`
-
-            // Run in background, don't await strictly if we want UI to be responsive, 
-            // but awaiting is fine since it's usually fast.
-            await invoke('launch_app', { execCmd: cmd })
+            await backend.launchApp(cmd)
 
             return `Theme updated from ${file.split('/').pop()}`
         } catch (e) {

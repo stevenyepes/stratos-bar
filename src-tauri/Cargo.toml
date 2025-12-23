@@ -17,6 +17,7 @@ name = "stratos_bar_lib"
 
 [dependencies]
 arboard = "3"
+async-trait = "0.1.89"
 dirs = "5"
 freedesktop-desktop-entry = "0.8.0"
 futures-util = "0.3"

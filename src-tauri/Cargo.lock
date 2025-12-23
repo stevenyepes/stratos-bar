@@ -4408,6 +4408,7 @@ name = "stratos-bar"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "async-trait",
  "dirs 5.0.1",
  "freedesktop-desktop-entry",
  "futures-util",
