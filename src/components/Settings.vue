@@ -532,7 +532,6 @@ const connectionMessage = ref('')
 let saveTimeout = null
 
 watch(() => props.initialConfig, (val) => {
-    console.log('Settings: initialConfig changed:', val)
     if (val) {
         config.value = JSON.parse(JSON.stringify(val))
         if(!config.value.shortcuts) config.value.shortcuts = {}

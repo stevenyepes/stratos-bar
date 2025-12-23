@@ -11,11 +11,10 @@
         type="text"
         :placeholder="uiState === 'idle' ? '🔍 Type a command, search files, or ask AI...' : 'Type to search...'"
         class="search-input font-primary"
-        autofocus
         @keydown.down.prevent="navigateResults(1)"
         @keydown.up.prevent="navigateResults(-1)"
         @keydown.enter.prevent="executeAction(selectedIndex)"
-        @keydown.esc="emit('close')"
+        @keydown.esc.stop="emit('close')"
         @keydown.ctrl.n.prevent="askAI"
       />
     </div>

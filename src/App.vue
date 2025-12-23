@@ -29,8 +29,9 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, nextTick } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { listen } from '@tauri-apps/api/event'
 import Settings from './components/Settings.vue'
 import OmnibarSearch from './components/omnibar/OmnibarSearch.vue'
 import OmnibarChat from './components/omnibar/OmnibarChat.vue'
@@ -43,7 +44,8 @@ import { useScriptRunner } from './composables/useScriptRunner'
 // Composables
 const { 
   uiState, config, apps, showSettings,
-  updateWindowSize, hideWindow, loadData, reloadConfig 
+  updateWindowSize, hideWindow, loadData, reloadConfig,
+  searchInput, query
 } = useOmnibar()
 
 const { setupAiListeners, closeAiChat, cleanupAiListeners } = useAI()
@@ -71,33 +73,66 @@ onMounted(async () => {
     await appWindow.show()
   }
   
+  await listen('window-shown', () => {
+     handleWindowFocus()
+  })
+  
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('reload-config', reloadConfig)
+  window.addEventListener('focus', handleWindowFocus)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('reload-config', reloadConfig)
+  window.removeEventListener('focus', handleWindowFocus)
   
   cleanupAiListeners()
   cleanupScriptListeners()
 })
 
 // Global Handlers
+
 function handleGlobalKeydown(e) {
   if (e.key === 'Escape') {
     handleEsc()
+    return
   }
   
   if ((e.ctrlKey || e.metaKey) && e.key === ',') {
     e.preventDefault()
     showSettings.value = true
+    return
+  }
+
+  // Fix for typing issue: If typing alphanumeric chars and focus is lost (body), focus input
+  if (
+    !e.ctrlKey && !e.metaKey && !e.altKey && 
+    e.key.length === 1 && 
+    (document.activeElement === document.body || !document.activeElement)
+  ) {
+    if (uiState.value === 'idle' || uiState.value === 'searching') {
+        if (searchInput.value) {
+            searchInput.value.focus()
+            // Rescue the lost key by manually appending it if it wasn't captured by input
+            query.value += e.key
+            e.preventDefault()
+        }
+    }
   }
 }
 
 function handleEsc() {
   if (showSettings.value) {
+    // Check for open dialogs (Vuetify overlays) inside settings
+    // If a dialog is open, let Vuetify handle the ESC (closing the dialog)
+    // and do not close the entire settings panel.
+    if (document.querySelector('.v-overlay--active')) {
+      return
+    }
+
     showSettings.value = false
+    focusInput()
     return
   }
   if (uiState.value === 'chatting') {
@@ -107,6 +142,23 @@ function handleEsc() {
   } else {
     hideWindow()
   }
+}
+
+async function handleWindowFocus() {
+  // If settings are open, don't steal focus to search
+  if (showSettings.value) return
+
+  if (uiState.value === 'idle' || uiState.value === 'searching') {
+    focusInput()
+    // Retry shortly after to handle potential window animation/transition delays
+    setTimeout(focusInput, 50)
+  }
+}
+
+function focusInput() {
+  nextTick(() => {
+    if (searchInput.value) searchInput.value.focus()
+  })
 }
 </script>
 

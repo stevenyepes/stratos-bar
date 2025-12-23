@@ -26,11 +26,12 @@ const files = shallowRef([])
 const scripts = shallowRef([])
 const selectedIndex = ref(0)
 const showSettings = ref(false)
+const searchInput = ref(null) // Template ref
 
 export function useOmnibar() {
     const appWindow = getCurrentWindow()
     const vTheme = useTheme()
-    const searchInput = ref(null) // Template ref
+
 
     async function updateWindowSize() {
         try {
@@ -60,7 +61,10 @@ export function useOmnibar() {
 
             await appWindow.setSize(new LogicalSize(width, height))
 
-            // Restore focus
+            // Try to set focus immediately to combat resize blur
+            if (searchInput.value) searchInput.value.focus()
+
+            // Restore focus (delayed safety net)
             if (uiState.value === 'searching' || uiState.value === 'idle') {
                 setTimeout(async () => {
                     if (searchInput.value) searchInput.value.focus()
@@ -73,8 +77,6 @@ export function useOmnibar() {
     }
 
     async function hideWindow() {
-        query.value = ''
-        uiState.value = 'idle'
         await appWindow.hide()
     }
 

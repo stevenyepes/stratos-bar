@@ -17,12 +17,30 @@ use ports::app_port::AppRepository;
 use ports::config_port::ConfigService;
 use ports::icon_port::IconResolver;
 use ports::window_port::WindowService;
+use std::os::unix::process::CommandExt;
 use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
-use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use walkdir::WalkDir;
+
+/// Helper to toggle the main window's visibility.
+/// If visible, it hides it.
+/// If hidden, it shows, raises, focuses, and emits the 'window-shown' event.
+fn toggle_main_window(handle: &tauri::AppHandle) {
+    if let Some(window) = handle.get_webview_window("main") {
+        let is_visible = window.is_visible().unwrap_or(false);
+        if is_visible {
+            let _ = window.hide();
+        } else {
+            // Re-assert always on top to ensure it floats above others
+            let _ = window.set_always_on_top(true);
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit("window-shown", ());
+        }
+    }
+}
 
 struct AppState {
     app_repository: Arc<dyn AppRepository>,
@@ -97,14 +115,7 @@ impl ksni::Tray for PaletteTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        if let Some(window) = self.handle.get_webview_window("main") {
-            if window.is_visible().unwrap_or(false) {
-                let _ = window.hide();
-            } else {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }
+        toggle_main_window(&self.handle);
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -113,10 +124,7 @@ impl ksni::Tray for PaletteTray {
             StandardItem {
                 label: "Show".into(),
                 activate: Box::new(|this: &mut Self| {
-                    if let Some(window) = this.handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    toggle_main_window(&this.handle);
                 }),
                 ..Default::default()
             }
@@ -206,6 +214,10 @@ async fn launch_app(exec_cmd: String) -> Result<(), String> {
 
     std::process::Command::new(cmd)
         .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0) // Sets the process group ID to the child's PID effectively creating a new session
         .spawn()
         .map_err(|e| e.to_string())?;
 
@@ -420,7 +432,6 @@ async fn get_selection_context() -> Result<String, String> {
 
 #[tauri::command]
 async fn copy_to_clipboard(text: String) -> Result<(), String> {
-    println!("DEBUG: copy_to_clipboard called with text: '{}'", text);
     use arboard::Clipboard;
 
     let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
@@ -466,35 +477,8 @@ pub fn run() {
         })
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = app.emit("open_request", ());
-            if let Some(window) = app.get_webview_window("main") {
-                if window.is_visible().unwrap_or(false) {
-                    let _ = window.hide();
-                } else {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
+            toggle_main_window(app);
         }))
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcut("Super+Space")
-                .expect("Failed to register shortcut")
-                .with_handler(|app, shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
-                        if shortcut.matches(Modifiers::SUPER, Code::Space) {
-                            if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                        }
-                    }
-                })
-                .build(),
-        )
         .invoke_handler(tauri::generate_handler![
             greet,
             search_files,
