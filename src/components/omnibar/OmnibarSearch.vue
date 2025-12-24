@@ -260,8 +260,10 @@ async function executeAction(index) {
         await executeApp(matchedTool.value.data)
       } else if (matchedTool.value.type === 'script') {
         await executeScript(matchedTool.value.data)
+        query.value = ''
       } else if (matchedTool.value.type === 'skill') {
         await executeSkill(matchedTool.value)
+        query.value = ''
       } else if (matchedTool.value.type === 'internal' && matchedTool.value.id === 'settings') {
         showSettings.value = true
       } else {
@@ -288,6 +290,7 @@ async function executeAction(index) {
   
   if (index < currentIndex + filteredScripts.value.length) {
     await executeScript(filteredScripts.value[index - currentIndex])
+    query.value = ''
     return
   }
   currentIndex += filteredScripts.value.length
@@ -300,6 +303,7 @@ async function executeAction(index) {
 async function executeApp(app) {
   try {
     await invoke('launch_app', { execCmd: app.exec })
+    query.value = ''
     await hideWindow()
   } catch(e) {
     console.error('Failed to launch app', e)
@@ -309,6 +313,7 @@ async function executeApp(app) {
 async function executeFile(path) {
   try {
     await invoke('open_entity', { path })
+    query.value = ''
     await hideWindow()
   } catch(e) {
     console.error('Failed to open file', e)

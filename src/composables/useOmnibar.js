@@ -88,6 +88,7 @@ export function useOmnibar() {
     async function focusWindow(win) {
         try {
             await invoke('focus_window', { address: win.address })
+            query.value = ''
             await hideWindow()
         } catch (e) {
             console.error('Failed to focus window', e)

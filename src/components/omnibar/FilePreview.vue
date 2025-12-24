@@ -32,7 +32,14 @@
         v-else-if="fileType === 'video'" 
         class="h-100 w-100 d-flex align-center justify-center relative"
       >
+        <img 
+            v-if="thumbnailSrc" 
+            :src="thumbnailSrc" 
+            class="preview-media"
+        />
+
         <video
+          v-else
           v-show="!videoError"
           ref="videoRef"
           :src="srcUrl"
@@ -46,7 +53,7 @@
           @mouseleave="pauseVideo"
         ></video>
         
-        <div v-if="videoError" class="text-center pa-4 text-warning">
+        <div v-if="videoError && !thumbnailSrc" class="text-center pa-4 text-warning">
              <v-icon icon="mdi-video-off" size="large" class="mb-2"></v-icon>
              <div class="text-caption">Playback failed</div>
              <div class="text-xs text-dimmer mt-1">Missing codecs or invalid format</div>
@@ -90,6 +97,7 @@
 <script setup>
 import { toRef, ref, watch, nextTick, computed } from 'vue'
 import { useFilePreview } from '../../composables/useFilePreview'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/atom-one-dark.css' // Or another dark theme
 
@@ -117,9 +125,31 @@ function onVideoLoaded(e) {
   }
 }
 
-function onVideoError(e) {
+async function onVideoError(e) {
     console.warn("Video playback error:", e)
-    videoError.value = true
+    
+    // Try to get a thumbnail
+    try {
+        const thumbPath = await useFilePreview(filePathRef).generateVideoThumbnail(filePathRef.value)
+        if(thumbPath) {
+             const thumbUrl = await convertFileSrc(thumbPath)
+             // Force change to image type to display thumbnail
+             onThumbnailGenerated(thumbUrl)
+        } else {
+             videoError.value = true     
+        }
+    } catch(err) {
+        console.error("Failed to generate thumb:", err)
+        videoError.value = true
+    }
+}
+
+// Helper to switch mode to image for thumbnail
+const thumbnailSrc = ref(null)
+function onThumbnailGenerated(url) {
+    thumbnailSrc.value = url
+    // We can't easily change `fileType` from here because it's computed/managed in composable 
+    // but we can override what we show.
 }
 
 function playVideo() {
@@ -134,6 +164,7 @@ function pauseVideo() {
 watch(filePathRef, () => {
     videoMeta.value = null
     videoError.value = false
+    thumbnailSrc.value = null
 })
 
 

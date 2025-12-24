@@ -98,6 +98,10 @@ export function useFilePreview(filePathRef) {
         error,
         fileType,
         srcUrl,
-        reset
+        srcUrl,
+        reset,
+        generateVideoThumbnail: async (path) => {
+            return invoke('generate_video_thumbnail', { path })
+        }
     }
 }
