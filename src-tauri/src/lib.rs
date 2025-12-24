@@ -77,6 +77,7 @@ pub fn run() {
             commands::scripts::execute_script,
             commands::windows::list_windows,
             commands::windows::focus_window,
+            commands::system::generate_video_thumbnail,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

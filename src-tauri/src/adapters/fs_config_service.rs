@@ -3,16 +3,28 @@ use crate::ports::config_port::ConfigService;
 use std::fs;
 use std::path::PathBuf;
 
-pub struct FsConfigService;
+pub struct FsConfigService {
+    custom_root: Option<PathBuf>,
+}
 
 impl FsConfigService {
     pub fn new() -> Self {
-        Self
+        Self { custom_root: None }
+    }
+
+    #[cfg(test)]
+    pub fn new_with_root(root: PathBuf) -> Self {
+        Self {
+            custom_root: Some(root),
+        }
     }
 }
 
 impl ConfigService for FsConfigService {
     fn get_config_dir(&self) -> Option<PathBuf> {
+        if let Some(ref root) = self.custom_root {
+            return Some(root.clone());
+        }
         dirs::config_dir().map(|p| p.join("stratos-bar"))
     }
 
@@ -50,5 +62,37 @@ impl ConfigService for FsConfigService {
         } else {
             Err("Could not find config directory".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_save_and_load_config() {
+        let dir = tempdir().unwrap();
+        let service = FsConfigService::new_with_root(dir.path().to_path_buf());
+
+        let mut config = AppConfig::default();
+        config.preferred_model = "test_model".to_string();
+
+        // Save
+        service.save_config(&config).expect("Failed to save config");
+
+        // Load
+        let loaded_config = service.load_config();
+        assert_eq!(loaded_config.preferred_model, "test_model");
+    }
+
+    #[test]
+    fn test_load_defaults_if_missing() {
+        let dir = tempdir().unwrap();
+        let service = FsConfigService::new_with_root(dir.path().to_path_buf());
+
+        let config = service.load_config();
+        // Should have defaults applied
+        assert_eq!(config.preferred_model, "local");
     }
 }

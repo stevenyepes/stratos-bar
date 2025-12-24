@@ -22,17 +22,42 @@ pub struct FileMetadata {
     mime_type: Option<String>,
 }
 
+fn calculate_file_score(name: &str, ext: Option<&str>, query: &str) -> i32 {
+    let mut score = 0;
+    let lower_name = name.to_lowercase();
+    let lower_query = query.to_lowercase();
+
+    // Name match bonuses
+    if lower_name == lower_query {
+        score += 100;
+    } else if lower_name.starts_with(&lower_query) {
+        score += 50;
+    }
+
+    // Extension prioritization
+    if let Some(e) = ext {
+        let e_lower = e.to_lowercase();
+        match e_lower.as_str() {
+            // Images (Highest priority)
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tiff" => score += 40,
+
+            // Videos (Second priority)
+            "mp4" | "mkv" | "avi" | "mov" | "webm" | "flv" | "wmv" => score += 30,
+
+            // Common documents/code (Third priority)
+            "rs" | "js" | "ts" | "vue" | "py" | "html" | "css" | "json" | "md" | "txt" | "pdf"
+            | "csv" | "docx" | "xlsx" => score += 20,
+
+            _ => {}
+        }
+    }
+
+    score
+}
+
 #[tauri::command]
 pub async fn search_files(query: String, path: String) -> Result<Vec<String>, String> {
     let lower_query = query.to_lowercase();
-
-    // Priority extensions
-    let priority_exts = vec![
-        "mp4", "mkv", "avi", "mov", "webm", // Video
-        "png", "jpg", "jpeg", "webp", "gif", "svg", // Image
-        "rs", "js", "ts", "vue", "py", "html", "css", "json", "md", "txt", "pdf",
-        "csv", // Code/Doc
-    ];
 
     let walker = WalkDir::new(&path).max_depth(10).into_iter();
 
@@ -44,28 +69,16 @@ pub async fn search_files(query: String, path: String) -> Result<Vec<String>, St
         let path_str = path.to_string_lossy();
 
         if path_str.to_lowercase().contains(&lower_query) {
-            // Simple scoring
-            let mut score = 0;
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                let lower_name = name.to_lowercase();
-                if lower_name.starts_with(&lower_query) {
-                    score += 50;
-                }
-                if lower_name == lower_query {
-                    score += 100;
-                }
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let ext = path.extension().and_then(|e| e.to_str());
 
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if priority_exts.contains(&ext.to_lowercase().as_str()) {
-                        score += 20;
-                    }
-                }
-            }
+            let score = calculate_file_score(name, ext, &query);
 
             matches.push((path_str.to_string(), score));
-            if matches.len() > 200 {
+            if matches.len() > 500 {
+                // Increased limit slightly to allow better sorting
                 break;
-            } // Hard limit scan
+            }
         }
     }
 
@@ -175,6 +188,62 @@ pub async fn make_file_executable(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn generate_video_thumbnail(
+    app_handle: tauri::AppHandle,
+    path: String,
+) -> Result<String, String> {
+    use std::process::Command;
+    use tauri::Manager;
+
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
+
+    // Create cache dir if it doesn't exist
+    if !cache_dir.exists() {
+        std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    }
+
+    // Hash path to get unique filename
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    let filename = format!("{}.jpg", hasher.finish());
+    let thumb_path = cache_dir.join(&filename);
+    let thumb_path_str = thumb_path.to_string_lossy().to_string();
+
+    if thumb_path.exists() {
+        return Ok(thumb_path_str);
+    }
+
+    // Run ffmpeg
+    // ffmpeg -y -i <input> -ss 00:00:01 -vframes 1 -vf scale=640:-1 <output>
+    let output = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-i")
+        .arg(&path)
+        .arg("-ss")
+        .arg("00:00:01")
+        .arg("-vframes")
+        .arg("1")
+        // Scale to reasonable width, keep aspect ratio
+        .arg("-vf")
+        .arg("scale=640:-1")
+        .arg(&thumb_path_str)
+        .output()
+        .map_err(|e| format!("Failed to execute ffmpeg: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffmpeg failed: {}", stderr));
+    }
+
+    Ok(thumb_path_str)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +286,34 @@ mod tests {
             .unwrap();
         assert!(metadata.size > 0);
         assert!(!metadata.is_dir);
+    }
+    #[test]
+    fn test_calculate_file_score() {
+        // Exact match
+        assert_eq!(calculate_file_score("test", None, "test"), 100);
+
+        // Starts with
+        assert_eq!(calculate_file_score("test_file", None, "test"), 50);
+
+        // Extensions
+        // Image (40)
+        assert_eq!(calculate_file_score("pic", Some("png"), "pic"), 140); // 100 + 40
+        assert_eq!(calculate_file_score("foo", Some("jpg"), "bar"), 40);
+
+        // Video (30)
+        assert_eq!(calculate_file_score("vid", Some("mp4"), "bar"), 30);
+
+        // Common (20)
+        assert_eq!(calculate_file_score("doc", Some("txt"), "bar"), 20);
+
+        // Prioritization check
+        let img = calculate_file_score("a", Some("png"), "query");
+        let vid = calculate_file_score("a", Some("mp4"), "query");
+        let doc = calculate_file_score("a", Some("txt"), "query");
+        let other = calculate_file_score("a", Some("bin"), "query");
+
+        assert!(img > vid);
+        assert!(vid > doc);
+        assert!(doc > other);
     }
 }

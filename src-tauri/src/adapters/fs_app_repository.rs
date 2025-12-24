@@ -8,11 +8,23 @@ use std::sync::Arc;
 
 pub struct FsAppRepository {
     icon_resolver: Arc<dyn IconResolver>,
+    custom_paths: Option<Vec<PathBuf>>,
 }
 
 impl FsAppRepository {
     pub fn new(icon_resolver: Arc<dyn IconResolver>) -> Self {
-        Self { icon_resolver }
+        Self {
+            icon_resolver,
+            custom_paths: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_with_paths(icon_resolver: Arc<dyn IconResolver>, paths: Vec<PathBuf>) -> Self {
+        Self {
+            icon_resolver,
+            custom_paths: Some(paths),
+        }
     }
 
     fn parse_desktop_file(&self, path: &std::path::Path) -> Option<AppEntry> {
@@ -90,17 +102,23 @@ impl AppRepository for FsAppRepository {
         let mut seen_ids = HashSet::new();
 
         // Construct search paths
+        // Construct search paths
         let mut search_paths = Vec::new();
-        if let Ok(dirs) = std::env::var("XDG_DATA_DIRS") {
-            for dir in dirs.split(':') {
-                search_paths.push(PathBuf::from(dir).join("applications"));
-            }
+
+        if let Some(ref custom) = self.custom_paths {
+            search_paths.extend(custom.clone());
         } else {
-            search_paths.push(PathBuf::from("/usr/share/applications"));
-            search_paths.push(PathBuf::from("/usr/local/share/applications"));
-        }
-        if let Some(home) = dirs::data_local_dir() {
-            search_paths.push(home.join("applications"));
+            if let Ok(dirs) = std::env::var("XDG_DATA_DIRS") {
+                for dir in dirs.split(':') {
+                    search_paths.push(PathBuf::from(dir).join("applications"));
+                }
+            } else {
+                search_paths.push(PathBuf::from("/usr/share/applications"));
+                search_paths.push(PathBuf::from("/usr/local/share/applications"));
+            }
+            if let Some(home) = dirs::data_local_dir() {
+                search_paths.push(home.join("applications"));
+            }
         }
 
         // Iterate over paths using the crate's iterator
@@ -114,13 +132,16 @@ impl AppRepository for FsAppRepository {
             }
         }
 
-        // 2. Scan Flatpak Exports explicitly if available
-        let flatpak_paths = vec![
-            PathBuf::from("/var/lib/flatpak/exports/share/applications"),
-            dirs::data_local_dir()
-                .map(|d| d.join("flatpak/exports/share/applications"))
-                .unwrap_or_default(),
-        ];
+        // 2. Scan Flatpak Exports explicitly if available (SKIP IF TESTING)
+        let mut flatpak_paths = Vec::new();
+        if self.custom_paths.is_none() {
+            flatpak_paths.push(PathBuf::from("/var/lib/flatpak/exports/share/applications"));
+            flatpak_paths.push(
+                dirs::data_local_dir()
+                    .map(|d| d.join("flatpak/exports/share/applications"))
+                    .unwrap_or_default(),
+            );
+        }
 
         for path in Iter::new(flatpak_paths.into_iter()) {
             if let Some(app) = self.parse_desktop_file(&path) {
@@ -135,7 +156,7 @@ impl AppRepository for FsAppRepository {
         // 3. Scan AppImages
         if let Some(home) = dirs::home_dir() {
             let applications_dir = home.join("Applications");
-            if applications_dir.exists() {
+            if applications_dir.exists() && self.custom_paths.is_none() {
                 let glob_pattern = applications_dir.join("*.AppImage");
                 if let Ok(glob_paths) = glob::glob(&glob_pattern.to_string_lossy()) {
                     for entry in glob_paths.filter_map(|e| e.ok()) {
@@ -167,5 +188,69 @@ impl AppRepository for FsAppRepository {
         }
 
         Ok(apps)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::icon_port::IconResolver;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    struct MockIconResolver;
+    impl IconResolver for MockIconResolver {
+        fn resolve_icon(&self, _icon_name: &str) -> Option<String> {
+            Some("/tmp/icon.png".to_string())
+        }
+    }
+
+    #[test]
+    fn test_list_apps_finds_desktop_entry() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+
+        let desktop_file_path = apps_dir.join("test-app.desktop");
+        let mut file = File::create(desktop_file_path).unwrap();
+        writeln!(
+            file,
+            "[Desktop Entry]\nName=Test App\nExec=test-exec %f\nIcon=test-icon\nType=Application"
+        )
+        .unwrap();
+
+        let resolver = Arc::new(MockIconResolver);
+        let repo = FsAppRepository::new_with_paths(resolver, vec![apps_dir]);
+
+        let apps = repo.list_apps().unwrap();
+
+        // Assertions
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Test App");
+        assert_eq!(apps[0].exec, "test-exec");
+        assert_eq!(apps[0].icon, Some("/tmp/icon.png".to_string()));
+    }
+
+    #[test]
+    fn test_list_apps_ignores_no_display() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+
+        let desktop_file_path = apps_dir.join("hidden-app.desktop");
+        let mut file = File::create(desktop_file_path).unwrap();
+        writeln!(
+            file,
+            "[Desktop Entry]\nName=Hidden App\nExec=hidden\nNoDisplay=true"
+        )
+        .unwrap();
+
+        let resolver = Arc::new(MockIconResolver);
+        let repo = FsAppRepository::new_with_paths(resolver, vec![apps_dir]);
+
+        let apps = repo.list_apps().unwrap();
+
+        assert!(apps.is_empty());
     }
 }

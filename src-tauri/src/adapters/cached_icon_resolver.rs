@@ -147,3 +147,53 @@ impl IconResolver for CachedIconResolver {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_resolve_absolute_path() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_icon.png");
+        File::create(&file_path).unwrap();
+
+        let resolver = CachedIconResolver::new();
+        let result = resolver.resolve_icon(file_path.to_str().unwrap());
+
+        assert!(result.is_some());
+        // Canonicalization might resolve symlinks or change format, but for temp dir it should be close
+        // We just check it's some valid path
+        assert!(result.unwrap().contains("test_icon.png"));
+    }
+
+    #[test]
+    fn test_caching_behavior() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_cache.png");
+        File::create(&file_path).unwrap();
+
+        let resolver = CachedIconResolver::new();
+        let path_str = file_path.to_str().unwrap();
+
+        // First resolution
+        assert!(resolver.resolve_icon(path_str).is_some());
+
+        // Delete valid file
+        std::fs::remove_file(&file_path).unwrap();
+
+        // Second resolution should hit cache and still return result even if file is gone
+        // functionality of "resolve_icon_internal" checks existence, but "resolve_icon" checks cache first.
+        let result = resolver.resolve_icon(path_str);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_missing_icon_returns_none() {
+        let resolver = CachedIconResolver::new();
+        let result = resolver.resolve_icon("/non/existent/path/icon.png");
+        assert!(result.is_none());
+    }
+}

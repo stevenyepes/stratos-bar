@@ -41,6 +41,12 @@ tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["full"] }
 walkdir = "2"
 
+[dev-dependencies]
+mockall = "0.13"
+tempfile = "3"
+tokio = { version = "1", features = ["full", "test-util"] }
+wiremock = "0.5"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

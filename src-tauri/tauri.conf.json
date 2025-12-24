@@ -32,7 +32,8 @@
           "/usr/share/icons/**",
           "/usr/share/pixmaps/**",
           "/opt/**",
-          "$HOME/**"
+          "$HOME/**",
+          "$HOME/.*/**"
         ],
         "enable": true
       }
