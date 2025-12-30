@@ -1,5 +1,6 @@
 
 import { evaluate } from 'mathjs'
+import { reactive } from 'vue'
 import ct from 'countries-and-timezones'
 import { getCurrency } from 'locale-currency'
 import getSymbolFromCurrency from 'currency-symbol-map'
@@ -110,17 +111,34 @@ export const CurrencySkill = {
             this._getRates() // Trigger async fetch to warm up cache if missing
         }
 
+        const data = reactive({
+            type: 'currency',
+            amount,
+            from,
+            to,
+            result,
+            rate,
+            timestamp
+        })
+
+        if (result === null) {
+            this._getRates().then(rates => {
+                if (rates && rates[from] && rates[to]) {
+                    const rateFrom = rates[from]
+                    const rateTo = rates[to]
+                    const newRate = rateTo / rateFrom
+                    const newResult = (amount / rateFrom) * rateTo
+
+                    data.rate = newRate
+                    data.result = newResult
+                    data.timestamp = Date.now()
+                }
+            })
+        }
+
         return {
             score: 1.0, // High confidence matches
-            data: {
-                type: 'currency',
-                amount,
-                from,
-                to,
-                result,
-                rate,
-                timestamp
-            },
+            data,
             preview: result !== null
                 ? `${amount} ${from} = ${result.toFixed(2)} ${to}`
                 : `Convert ${amount} ${from} to ${to}...`

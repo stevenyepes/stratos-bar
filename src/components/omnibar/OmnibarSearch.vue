@@ -15,7 +15,7 @@
         @keydown.down.prevent="navigateResults(1)"
         @keydown.up.prevent="navigateResults(-1)"
         @keydown.enter.prevent="executeAction(selectedIndex)"
-        @keydown.esc.stop="emit('close')"
+        @keydown.esc.stop="handleEsc"
         @keydown.ctrl.n.prevent="askAI"
       />
     </div>
@@ -242,6 +242,14 @@ async function handleClear() {
   await nextTick()
   if (confirm('Clear recent actions?')) {
      await clearActions()
+  }
+}
+
+function handleEsc() {
+  if (query.value) {
+    query.value = ''
+  } else {
+    emit('close')
   }
 }
 
