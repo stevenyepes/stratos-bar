@@ -50,6 +50,8 @@ export function useScriptRunner() {
             updateWindowSize()
 
             await invoke('execute_script', { path: script.path, args: script.args })
+            const { recordAction } = useOmnibar()
+            recordAction(script)
 
         } catch (e) {
             console.error(e)

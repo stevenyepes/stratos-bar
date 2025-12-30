@@ -40,6 +40,33 @@
                    <div class="result-hint text-dimmer">[↵]</div>
                  </div>
             </div>
+            <!-- Recent Actions -->
+            <div v-if="!query && recentActions.length > 0" class="results-section">
+                 <div class="section-header d-flex align-center justify-space-between">
+                    <span>RECENT ACTIONS</span>
+                    <button class="clear-btn" @click.stop="handleClear">CLEAR</button>
+                 </div>
+                 <div 
+                   v-for="(action, index) in recentActions"
+                   :key="action.id"
+                   class="result-item glass-hover interactive"
+                   :class="{'result-item-active': selectedIndex === (index + 1)}"
+                   @click="executeAction(index + 1)"
+                 >
+                   <div class="result-icon">
+                       <img v-if="action.icon && action.kind === 'app'" :src="convertFileSrc(action.icon)" width="24" height="24" />
+                       <span v-else-if="action.kind === 'app'">🚀</span>
+                       <span v-else-if="action.kind === 'script'">💻</span>
+                       <span v-else-if="action.kind === 'ai'">🤖</span>
+                       <span v-else>📄</span>
+                   </div>
+                   <div class="result-content">
+                     <div class="result-title">{{ action.name }}</div>
+                     <div class="result-subtitle text-dim">{{ action.content }}</div>
+                   </div>
+                   <div class="result-hint text-dimmer" v-if="selectedIndex === (index + 1)">[↵]</div>
+                 </div>
+            </div>
 
             <!-- Results -->
             <div v-else>
@@ -203,11 +230,20 @@ const emit = defineEmits(['close'])
 const { 
   uiState, query, searchInput, selectedIndex, showSettings,
   matchedTool, filteredWindows, filteredApps, filteredScripts, files,
-  focusWindow, hideWindow
+  focusWindow, hideWindow,
+  recentActions, recordAction, clearActions
 } = useOmnibar()
 
 const { askAI, executeAiTool, executeSkill } = useAI()
 const { executeScript } = useScriptRunner()
+
+async function handleClear() {
+  // Small delay to prevent click propagation issues
+  await nextTick()
+  if (confirm('Clear recent actions?')) {
+     await clearActions()
+  }
+}
 
 
 const isFileSearchMode = computed(() => {
@@ -218,7 +254,9 @@ const isFileSearchMode = computed(() => {
 const isDefaultState = computed(() => !query.value)
 
 const totalItems = computed(() => {
-  if (isDefaultState.value) return 1
+  if (isDefaultState.value) {
+      return 1 + (recentActions.value ? recentActions.value.length : 0)
+  }
   return 1 + filteredWindows.value.length + filteredApps.value.length + filteredScripts.value.length + files.value.length
 })
 
@@ -250,6 +288,21 @@ async function executeAction(index) {
   if (isDefaultState.value) {
     if (index === 0) {
       showSettings.value = true
+    } else {
+        const action = recentActions.value[index - 1]
+        if (action) {
+            // Re-execute based on kind
+            if (action.kind === 'app') {
+               await executeApp({ exec: action.content, name: action.name }) // Reconstruct basic app object
+            } else if (action.kind === 'script') {
+               await executeScript({ path: action.content, alias: action.name })
+            } else if (action.kind === 'file') {
+               executeFile(action.content)
+            }
+            // recordAction is called inside these functions now
+            // But for safety/refresh we might want to call it here too? 
+            // No, the delegates will call it.
+        }
     }
     return
   }
@@ -303,6 +356,7 @@ async function executeAction(index) {
 async function executeApp(app) {
   try {
     await invoke('launch_app', { execCmd: app.exec })
+    recordAction(app)
     query.value = ''
     await hideWindow()
   } catch(e) {
@@ -313,6 +367,7 @@ async function executeApp(app) {
 async function executeFile(path) {
   try {
     await invoke('open_entity', { path })
+    recordAction(path)
     query.value = ''
     await hideWindow()
   } catch(e) {
@@ -566,4 +621,22 @@ function getFileColor(path) {
 .text-red-300 { color: #fca5a5; }
 .text-yellow-300 { color: #fde047; }
 .text-blue-300 { color: #93c5fd; }
+
+.clear-btn {
+  font-size: 10px;
+  color: var(--theme-text-dimmer);
+  opacity: 0.6;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.clear-btn:hover {
+  opacity: 1;
+  background: rgba(255, 50, 50, 0.1);
+  color: #fca5a5;
+}
 </style>

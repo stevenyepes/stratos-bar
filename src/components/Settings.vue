@@ -118,10 +118,21 @@
                       :color="connectionStatus === 'success' ? 'success' : (connectionStatus === 'error' ? 'error' : 'secondary')"
                       variant="tonal"
                       prepend-icon="mdi-connection"
-                      class="text-none"
+                      class="text-none mr-2"
                       @click="checkConnection"
                     >
                       Test Connection
+                    </v-btn>
+
+                    <!-- Clear History Button -->
+                    <v-btn
+                        variant="tonal"
+                        color="error"
+                        prepend-icon="mdi-delete-sweep"
+                        class="text-none"
+                        @click="handleClearHistory"
+                    >
+                        Clear History
                     </v-btn>
                     
                     <transition name="fade">
@@ -483,8 +494,17 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { themePresets, applyTheme } from '../theme'
 import { useTheme } from 'vuetify'
 import { MatugenSkill } from '../skills/builtin/MatugenSkill'
+import { useOmnibar } from '../composables/useOmnibar'
 
 const vTheme = useTheme()
+const { clearActions } = useOmnibar()
+
+async function handleClearHistory() {
+    if (confirm('Are you sure you want to clear your recent action history?')) {
+        await clearActions()
+        // Optional: show a snackbar or small feedback
+    }
+}
 
 const props = defineProps(['modelValue', 'initialConfig', 'apps'])
 const emit = defineEmits(['update:modelValue', 'config-updated'])

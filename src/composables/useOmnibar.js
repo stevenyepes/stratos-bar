@@ -24,6 +24,7 @@ const apps = shallowRef([]) // use shallowRef for large lists for performance
 const windows = shallowRef([])
 const files = shallowRef([])
 const scripts = shallowRef([])
+const recentActions = shallowRef([])
 const selectedIndex = ref(0)
 const showSettings = ref(false)
 const searchInput = ref(null) // Template ref
@@ -117,12 +118,73 @@ export function useOmnibar() {
             await reloadConfig()
             const [appsList, scriptsList] = await Promise.all([
                 invoke('list_apps'),
-                invoke('list_scripts')
+                invoke('list_scripts'),
+                loadRecentActions()
             ])
             apps.value = appsList
             scripts.value = scriptsList
         } catch (e) {
             console.error('Failed to load data', e)
+        }
+    }
+
+    async function loadRecentActions() {
+        try {
+            recentActions.value = await invoke('get_recent_actions', { limit: 20 })
+        } catch (e) {
+            console.error('Failed to load recent actions', e)
+        }
+    }
+
+    async function recordAction(item) {
+        try {
+            if (!item) return;
+
+            let action = {
+                id: '',
+                kind: 'app',
+                content: '',
+                name: '',
+                last_accessed: Date.now(),
+                frequency: 1
+            };
+
+            if (item.exec) { // App
+                action.id = 'app:' + item.exec;
+                action.kind = 'app';
+                action.content = item.exec;
+                action.name = item.name;
+                action.icon = item.icon; // Added icon
+            } else if (item.alias) { // Script
+                action.id = 'script:' + item.alias;
+                action.kind = 'script';
+                action.content = item.path;
+                action.name = item.alias;
+            } else if (item.address) { // Window
+                // We might not want to record window switching as persistent "Action" 
+                // effectively, but user asked for "recent selected actions".
+                // Window switching is ephemeral.
+                // Let's exclude window switching for now unless requested.
+                return;
+            } else if (typeof item === 'string') { // File path
+                action.id = 'file:' + item;
+                action.kind = 'file';
+                action.content = item;
+                action.name = item.split('/').pop();
+            } else if (item.type === 'tool' || item.type === 'skill') {
+                action.id = 'ai:' + (item.id || item.name);
+                action.kind = 'ai';
+                action.content = item.id || item.name;
+                action.name = item.name;
+            } else {
+                return; // Unknown
+            }
+
+            await invoke('record_action', { action })
+            // Refresh
+            loadRecentActions()
+        } catch (e) {
+            console.error('Failed to record action', e)
         }
     }
 
@@ -144,7 +206,7 @@ export function useOmnibar() {
                         type: 'app',
                         name: app.name,
                         description: 'Launch application',
-                        icon: '🚀',
+                        icon: app.icon || '🚀',
                         data: app
                     }
                 }
@@ -206,15 +268,63 @@ export function useOmnibar() {
 
     const filteredApps = computed(() => {
         if (!query.value) return []
-        return apps.value.filter(app =>
-            app.name.toLowerCase().includes(query.value.toLowerCase()) ||
-            app.exec.toLowerCase().includes(query.value.toLowerCase())
-        ).slice(0, 5)
+        const q = query.value.toLowerCase()
+
+        // 1. Filter
+        let matches = apps.value.filter(app =>
+            app.name.toLowerCase().includes(q) ||
+            app.exec.toLowerCase().includes(q)
+        )
+
+        // 2. Rank using history
+        const recentMap = new Map()
+        recentActions.value.forEach((action, index) => {
+            if (action.kind === 'app') {
+                recentMap.set(action.content, 10000 - index)
+            }
+        })
+
+        matches.sort((a, b) => {
+            const scoreA = recentMap.get(a.exec) || 0
+            const scoreB = recentMap.get(b.exec) || 0
+            if (scoreA !== scoreB) return scoreB - scoreA // Descending score
+
+            // Secondary sort: Starts with query?
+            const aStarts = a.name.toLowerCase().startsWith(q)
+            const bStarts = b.name.toLowerCase().startsWith(q)
+            if (aStarts && !bStarts) return -1
+            if (!aStarts && bStarts) return 1
+
+            return a.name.localeCompare(b.name)
+        })
+
+        return matches.slice(0, 5)
     })
 
     const filteredScripts = computed(() => {
         if (!query.value) return scripts.value
-        return scripts.value.filter(s => s.alias.toLowerCase().includes(query.value.toLowerCase()))
+        const q = query.value.toLowerCase()
+
+        let matches = scripts.value.filter(s => s.alias.toLowerCase().includes(q))
+
+        const recentMap = new Map()
+        recentActions.value.forEach((action, index) => {
+            if (action.kind === 'script') {
+                // script actions store path in content, or unique alias?
+                // logic in recordAction used item.path for content.
+                // Assuming reliable mapping.
+                recentMap.set(action.content, 10000 - index)
+            }
+        })
+
+        matches.sort((a, b) => {
+            const scoreA = recentMap.get(a.path) || 0
+            const scoreB = recentMap.get(b.path) || 0
+            if (scoreA !== scoreB) return scoreB - scoreA
+            return a.alias.localeCompare(b.alias)
+        })
+
+        return matches
     })
 
     // Watchers
@@ -270,6 +380,15 @@ export function useOmnibar() {
         }
     })
 
+    async function clearActions() {
+        try {
+            await invoke('clear_history')
+            recentActions.value = []
+        } catch (e) {
+            console.error('Failed to clear history', e)
+        }
+    }
+
     return {
         // State
         uiState,
@@ -294,6 +413,9 @@ export function useOmnibar() {
         hideWindow,
         focusWindow,
         reloadConfig,
-        loadData
+        loadData,
+        recordAction,
+        clearActions,
+        recentActions
     }
 }
