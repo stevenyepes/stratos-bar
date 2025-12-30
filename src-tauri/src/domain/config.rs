@@ -47,6 +47,9 @@ pub struct AppConfig {
     #[serde(default)]
     pub scripts: Vec<ScriptConfig>,
 
+    #[serde(default)]
+    pub window_scale: Option<f32>,
+
     pub theme: Option<ThemeConfig>,
 }
 
@@ -56,6 +59,11 @@ impl AppConfig {
             self.preferred_model = "local".to_string();
             self.local_model_url = Some("http://localhost:11434".to_string());
             self.ollama_model = Some("llama3".to_string());
+            self.ollama_model = Some("llama3".to_string());
+        }
+
+        if self.window_scale.is_none() {
+            self.window_scale = Some(0.2); // Default to 20% of screen width
         }
 
         if self.theme.is_none() {

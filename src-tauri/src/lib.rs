@@ -10,6 +10,7 @@ use adapters::cached_icon_resolver::CachedIconResolver;
 use adapters::file_history::FileHistoryAdapter;
 use adapters::fs_app_repository::FsAppRepository;
 use adapters::fs_config_service::FsConfigService;
+use adapters::google_translation_service::GoogleTranslationService;
 use adapters::http_ai_service::HttpAiService;
 use adapters::linux_window_service::LinuxWindowService;
 use state::AppState;
@@ -35,12 +36,12 @@ pub fn run() {
             let window_service = Arc::new(LinuxWindowService::new());
             let ai_service = Arc::new(HttpAiService::new());
 
-            // FsAppRepository needs icon resolver
             let app_data_dir = app
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| PathBuf::from("."));
             let history_repository = Arc::new(FileHistoryAdapter::new(app_data_dir));
+            let translation_service = Arc::new(GoogleTranslationService::new());
 
             // Manage State
             app.manage(AppState {
@@ -50,6 +51,7 @@ pub fn run() {
                 icon_resolver: icon_resolver.clone(),
                 ai_service,
                 history_repository,
+                translation_service,
             });
 
             // Initialize KSNI Tray Service
@@ -88,10 +90,12 @@ pub fn run() {
             commands::windows::list_windows,
             commands::windows::focus_window,
             commands::windows::focus_window,
+            commands::windows::resize_window,
             commands::system::generate_video_thumbnail,
             commands::history::get_recent_actions,
             commands::history::record_action,
             commands::history::clear_history,
+            commands::translation::translate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

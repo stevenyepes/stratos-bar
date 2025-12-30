@@ -15,6 +15,12 @@
         <!-- State 4: Script Execution Mode -->
         <OmnibarTerminal v-else-if="uiState === 'executing'" />
 
+        <!-- State 5: Translation Mode -->
+        <OmnibarTranslation 
+           v-else-if="uiState === 'translating'"
+           @close="handleEsc"
+        />
+
         <!-- Settings Component (Overlay) -->
         <Settings 
           v-model="showSettings" 
@@ -36,6 +42,7 @@ import Settings from './components/Settings.vue'
 import OmnibarSearch from './components/omnibar/OmnibarSearch.vue'
 import OmnibarChat from './components/omnibar/OmnibarChat.vue'
 import OmnibarTerminal from './components/omnibar/OmnibarTerminal.vue'
+import OmnibarTranslation from './components/omnibar/OmnibarTranslation.vue'
 
 import { useOmnibar } from './composables/useOmnibar'
 import { useAI } from './composables/useAI'
@@ -139,6 +146,10 @@ function handleEsc() {
     closeAiChat()
   } else if (uiState.value === 'executing') {
     closeTerminal() 
+  } else if (uiState.value === 'translating') {
+      // Go back to launcher (idle state)
+      query.value = ''
+      focusInput()
   } else {
     hideWindow()
   }

@@ -3,6 +3,7 @@ use crate::ports::app_port::AppRepository;
 use crate::ports::config_port::ConfigService;
 use crate::ports::history::HistoryRepository;
 use crate::ports::icon_port::IconResolver;
+use crate::ports::translation_port::TranslationService;
 use crate::ports::window_port::WindowService;
 use std::sync::Arc;
 
@@ -13,4 +14,5 @@ pub struct AppState {
     pub icon_resolver: Arc<dyn IconResolver>,
     pub ai_service: Arc<dyn AiService>,
     pub history_repository: Arc<dyn HistoryRepository>,
+    pub translation_service: Arc<dyn TranslationService>,
 }

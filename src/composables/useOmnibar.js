@@ -10,7 +10,7 @@ import { useTheme } from 'vuetify'
 const COLLAPSED_HEIGHT = 100
 const EXPANDED_HEIGHT = 500
 const CHAT_HEIGHT = 600
-const BASE_WIDTH = 700
+const BASE_WIDTH = 600
 
 // Singleton state to ensure consistency if shared (though mostly used in App.vue)
 // For now, we'll keep it as a standard composable function, but usually these are singletons in this type of app.
@@ -44,16 +44,31 @@ export function useOmnibar() {
             if (monitor) {
                 const scaleFactor = monitor.scaleFactor
                 const screenWidth = monitor.size.width / scaleFactor
-                width = Math.max(BASE_WIDTH, Math.floor(screenWidth * 0.4))
+                // Fixed scale to avoid resize issues
+                const windowScale = 0.2
+                width = Math.max(BASE_WIDTH, Math.floor(screenWidth * windowScale))
+
+                // Cap at reasonable max for ultrawide (unless user explicitly sets high scale, but let's constrain base width)
+                // Actually, if user sets scale, they probably want that scale. 
+                // But let's apply a soft cap for defaults or if it gets too crazy? 
+                // Plan said: "cap at 95% of screen width" basically.
+                // The issue was auto-40% was too big.
+                // If user sets 0.3, on 3440 screen -> 1032px. That's fine.
+                // If user sets 0.5 -> 1720px. 
+
             } else {
                 const webScreenWidth = window.screen.width
                 if (webScreenWidth) {
-                    width = Math.max(BASE_WIDTH, Math.floor(webScreenWidth * 0.4))
+                    const windowScale = 0.2
+                    width = Math.max(BASE_WIDTH, Math.floor(webScreenWidth * windowScale))
                 }
             }
 
             if (uiState.value === 'chatting') {
                 height = CHAT_HEIGHT
+            } else if (uiState.value === 'translating') {
+                height = EXPANDED_HEIGHT
+                width = Math.max(1000, Math.floor(width * 1.4)) // Wider for split pane
             } else if (uiState.value === 'searching') {
                 height = EXPANDED_HEIGHT
                 // Check if file search mode
@@ -65,6 +80,14 @@ export function useOmnibar() {
                 height = EXPANDED_HEIGHT
             }
 
+
+
+
+            // Backend resize (Rust command) for better Wayland support
+            // await invoke('resize_window', { width: Math.floor(width), height: Math.floor(height) })
+
+            // Reverting to frontend resize to fix "maximize" glitch reported by user.
+            // The backend resize command (added for Wayland) seems to trigger a full-screen state briefly.
             await appWindow.setSize(new LogicalSize(width, height))
 
             // Try to set focus immediately to combat resize blur
@@ -111,6 +134,9 @@ export function useOmnibar() {
         if (config.value.scripts) {
             scripts.value = config.value.scripts
         }
+
+        // Trigger resize in case scale changed
+        updateWindowSize()
     }
 
     async function loadData() {
@@ -354,8 +380,20 @@ export function useOmnibar() {
             uiState.value = 'searching'
             invoke('list_windows').then(w => windows.value = w).catch(e => console.error(e))
             updateWindowSize()
-        } else if (!newVal && uiState.value === 'searching') {
+        } else if (!newVal && (uiState.value === 'searching' || uiState.value === 'translating')) {
             uiState.value = 'idle'
+            updateWindowSize()
+        }
+
+        // Translation Mode Trigger
+        if (newVal && newVal.startsWith('tr ')) {
+            if (uiState.value !== 'translating') {
+                uiState.value = 'translating'
+                updateWindowSize()
+            }
+        } else if (uiState.value === 'translating') {
+            // Revert to searching if prefix removed
+            uiState.value = 'searching'
             updateWindowSize()
         }
 

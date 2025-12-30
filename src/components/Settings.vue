@@ -190,6 +190,8 @@
                          <v-icon :icon="config.theme?.source_image ? 'mdi-check' : 'mdi-chevron-right'" size="small" class="text-medium-emphasis"></v-icon>
                     </div>
                   </v-card>
+                  
+
 
                   <div class="d-flex align-center mb-4">
                     <div class="section-title">Custom Colors</div>
