@@ -56,7 +56,11 @@ fn calculate_file_score(name: &str, ext: Option<&str>, query: &str) -> i32 {
 }
 
 #[tauri::command]
-pub async fn search_files(query: String, path: String) -> Result<Vec<String>, String> {
+pub async fn search_files(
+    query: String,
+    path: String,
+    include_hidden: bool,
+) -> Result<Vec<String>, String> {
     let lower_query = query.to_lowercase();
 
     let walker = WalkDir::new(&path).max_depth(10).into_iter();
@@ -64,7 +68,15 @@ pub async fn search_files(query: String, path: String) -> Result<Vec<String>, St
     // Collect matches
     let mut matches = Vec::new();
 
-    for entry in walker.filter_map(|e| e.ok()) {
+    // Use filter_entry to skip hidden directories efficiently if needed
+    let it = walker.filter_entry(move |e| {
+        if include_hidden {
+            return true;
+        }
+        !is_hidden(e)
+    });
+
+    for entry in it.filter_map(|e| e.ok()) {
         let path = entry.path();
         let path_str = path.to_string_lossy();
 
@@ -89,6 +101,14 @@ pub async fn search_files(query: String, path: String) -> Result<Vec<String>, St
     let results: Vec<String> = matches.into_iter().take(50).map(|(p, _)| p).collect();
 
     Ok(results)
+}
+
+fn is_hidden(entry: &walkdir::DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| s.starts_with('.') && s != "." && s != "..")
+        .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -315,5 +335,76 @@ mod tests {
         assert!(img > vid);
         assert!(vid > doc);
         assert!(doc > other);
+    }
+
+    #[tokio::test]
+    async fn test_search_files_hidden() {
+        let temp_dir = std::env::temp_dir().join("test_search_hidden");
+        let _ = std::fs::remove_dir_all(&temp_dir); // Cleanup previous
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let visible = temp_dir.join("visible.txt");
+        let hidden = temp_dir.join(".hidden.txt");
+        let hidden_dir = temp_dir.join(".hidden_dir");
+        let file_in_hidden = hidden_dir.join("file.txt");
+
+        std::fs::File::create(&visible).unwrap();
+        std::fs::File::create(&hidden).unwrap();
+        std::fs::create_dir(&hidden_dir).unwrap();
+        std::fs::File::create(&file_in_hidden).unwrap();
+
+        // Test 1: Exclude hidden (default)
+        // Should find 'visible.txt' but not '.hidden.txt' or 'file.txt' inside hidden dir
+        // searching for "txt" or "." or ""
+        let results = search_files(
+            "txt".to_string(),
+            temp_dir.to_string_lossy().to_string(),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Results are absolute paths
+        let found_visible = results.iter().any(|r| r.contains("visible.txt"));
+        let found_hidden = results.iter().any(|r| r.contains(".hidden.txt"));
+        let found_in_hidden = results
+            .iter()
+            .any(|r| r.contains("file.txt") && r.contains(".hidden_dir"));
+
+        assert!(found_visible, "Should find visible file");
+        assert!(
+            !found_hidden,
+            "Should NOT find hidden file when include_hidden=false"
+        );
+        assert!(
+            !found_in_hidden,
+            "Should NOT find file in hidden dir when include_hidden=false"
+        );
+
+        // Test 2: Include hidden
+        let results_all = search_files(
+            "txt".to_string(),
+            temp_dir.to_string_lossy().to_string(),
+            true,
+        )
+        .await
+        .unwrap();
+
+        let found_hidden_2 = results_all.iter().any(|r| r.contains(".hidden.txt"));
+        let found_in_hidden_2 = results_all
+            .iter()
+            .any(|r| r.contains("file.txt") && r.contains(".hidden_dir"));
+
+        assert!(
+            found_hidden_2,
+            "Should find hidden file when include_hidden=true"
+        );
+        assert!(
+            found_in_hidden_2,
+            "Should find file in hidden dir when include_hidden=true"
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

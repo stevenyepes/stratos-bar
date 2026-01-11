@@ -1,5 +1,8 @@
 # StratosBar
 
+![Pipeline Status](https://github.com/stevenyepes/stratos-bar/actions/workflows/test.yml/badge.svg) ![Coverage](https://img.shields.io/badge/coverage-unknown-grey)
+
+
 A modern, minimalist AI-powered command palette for Linux with a Raycast-inspired **Unified Omnibar** interface. Built with Tauri, Vue, and Vuetify.
 
 ## 🚀 Quick Overview

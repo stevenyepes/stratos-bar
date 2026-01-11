@@ -410,7 +410,12 @@ export function useOmnibar() {
             window.searchTimeout = setTimeout(async () => {
                 try {
                     const home = await path.homeDir()
-                    files.value = await invoke('search_files', { query: fileQuery, path: home })
+                    const includeHidden = config.value?.file_search?.include_hidden || false
+                    files.value = await invoke('search_files', {
+                        query: fileQuery,
+                        path: home,
+                        includeHidden
+                    })
                 } catch (e) {
                     console.error(e)
                 }

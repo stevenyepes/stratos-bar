@@ -2,13 +2,27 @@ use crate::domain::windows::WindowEntry;
 use crate::ports::window_port::WindowService;
 use std::env;
 use std::process::Command;
+use std::sync::Arc;
 
-// Reuse struct definitions from window_manager.rs, but private here or separate?
-// We can define internal helpers here.
+#[cfg_attr(test, mockall::automock)]
+pub trait CommandExecutor: Send + Sync {
+    fn execute(&self, cmd: &str, args: Vec<String>) -> Result<std::process::Output, String>;
+}
+
+pub struct StdCommandExecutor;
+
+impl CommandExecutor for StdCommandExecutor {
+    fn execute(&self, cmd: &str, args: Vec<String>) -> Result<std::process::Output, String> {
+        Command::new(cmd)
+            .args(args)
+            .output()
+            .map_err(|e| format!("Failed to execute {}: {}", cmd, e))
+    }
+}
 
 trait WindowBackend {
-    fn list_windows(&self) -> Result<Vec<WindowEntry>, String>;
-    fn focus_window(&self, id: &str) -> Result<(), String>;
+    fn list_windows(&self, executor: &dyn CommandExecutor) -> Result<Vec<WindowEntry>, String>;
+    fn focus_window(&self, executor: &dyn CommandExecutor, id: &str) -> Result<(), String>;
 }
 
 struct HyprlandBackend;
@@ -16,12 +30,8 @@ struct WlrctlBackend;
 struct WmctrlBackend;
 
 impl WindowBackend for HyprlandBackend {
-    fn list_windows(&self) -> Result<Vec<WindowEntry>, String> {
-        let output = Command::new("hyprctl")
-            .arg("clients")
-            .arg("-j")
-            .output()
-            .map_err(|e| format!("Failed to execute hyprctl: {}", e))?;
+    fn list_windows(&self, executor: &dyn CommandExecutor) -> Result<Vec<WindowEntry>, String> {
+        let output = executor.execute("hyprctl", vec!["clients".to_string(), "-j".to_string()])?;
 
         if !output.status.success() {
             return Err("hyprctl command failed".to_string());
@@ -46,13 +56,15 @@ impl WindowBackend for HyprlandBackend {
             .collect())
     }
 
-    fn focus_window(&self, id: &str) -> Result<(), String> {
-        let output = Command::new("hyprctl")
-            .arg("dispatch")
-            .arg("focuswindow")
-            .arg(format!("address:{}", id))
-            .output()
-            .map_err(|e| e.to_string())?;
+    fn focus_window(&self, executor: &dyn CommandExecutor, id: &str) -> Result<(), String> {
+        let output = executor.execute(
+            "hyprctl",
+            vec![
+                "dispatch".to_string(),
+                "focuswindow".to_string(),
+                format!("address:{}", id),
+            ],
+        )?;
 
         if output.status.success() {
             Ok(())
@@ -63,12 +75,9 @@ impl WindowBackend for HyprlandBackend {
 }
 
 impl WindowBackend for WlrctlBackend {
-    fn list_windows(&self) -> Result<Vec<WindowEntry>, String> {
-        let output = Command::new("wlrctl")
-            .arg("toplevel")
-            .arg("list")
-            .output()
-            .map_err(|e| format!("Failed to execute wlrctl: {}", e))?;
+    fn list_windows(&self, executor: &dyn CommandExecutor) -> Result<Vec<WindowEntry>, String> {
+        let output =
+            executor.execute("wlrctl", vec!["toplevel".to_string(), "list".to_string()])?;
 
         if !output.status.success() {
             return Err("wlrctl command failed".to_string());
@@ -93,13 +102,11 @@ impl WindowBackend for WlrctlBackend {
         Ok(windows)
     }
 
-    fn focus_window(&self, id: &str) -> Result<(), String> {
-        let output = Command::new("wlrctl")
-            .arg("toplevel")
-            .arg("focus")
-            .arg(id)
-            .output()
-            .map_err(|e| e.to_string())?;
+    fn focus_window(&self, executor: &dyn CommandExecutor, id: &str) -> Result<(), String> {
+        let output = executor.execute(
+            "wlrctl",
+            vec!["toplevel".to_string(), "focus".to_string(), id.to_string()],
+        )?;
 
         if output.status.success() {
             Ok(())
@@ -110,12 +117,8 @@ impl WindowBackend for WlrctlBackend {
 }
 
 impl WindowBackend for WmctrlBackend {
-    fn list_windows(&self) -> Result<Vec<WindowEntry>, String> {
-        let output = Command::new("wmctrl")
-            .arg("-l")
-            .arg("-x")
-            .output()
-            .map_err(|e| format!("Failed to execute wmctrl: {}", e))?;
+    fn list_windows(&self, executor: &dyn CommandExecutor) -> Result<Vec<WindowEntry>, String> {
+        let output = executor.execute("wmctrl", vec!["-l".to_string(), "-x".to_string()])?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut windows = Vec::new();
@@ -143,13 +146,11 @@ impl WindowBackend for WmctrlBackend {
         Ok(windows)
     }
 
-    fn focus_window(&self, id: &str) -> Result<(), String> {
-        let output = Command::new("wmctrl")
-            .arg("-i")
-            .arg("-a")
-            .arg(id)
-            .output()
-            .map_err(|e| e.to_string())?;
+    fn focus_window(&self, executor: &dyn CommandExecutor, id: &str) -> Result<(), String> {
+        let output = executor.execute(
+            "wmctrl",
+            vec!["-i".to_string(), "-a".to_string(), id.to_string()],
+        )?;
 
         if output.status.success() {
             Ok(())
@@ -159,11 +160,13 @@ impl WindowBackend for WmctrlBackend {
     }
 }
 
-pub struct LinuxWindowService;
+pub struct LinuxWindowService {
+    executor: Arc<dyn CommandExecutor>,
+}
 
 impl LinuxWindowService {
-    pub fn new() -> Self {
-        Self
+    pub fn new(executor: Arc<dyn CommandExecutor>) -> Self {
+        Self { executor }
     }
 
     fn get_backend(&self) -> Box<dyn WindowBackend> {
@@ -179,10 +182,97 @@ impl LinuxWindowService {
 
 impl WindowService for LinuxWindowService {
     fn list_windows(&self) -> Result<Vec<WindowEntry>, String> {
-        self.get_backend().list_windows()
+        self.get_backend().list_windows(self.executor.as_ref())
     }
 
     fn focus_window(&self, id: &str) -> Result<(), String> {
-        self.get_backend().focus_window(id)
+        self.get_backend().focus_window(self.executor.as_ref(), id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    fn mock_success_output(stdout: &str) -> std::process::Output {
+        std::process::Output {
+            status: ExitStatus::from_raw(0), // 0 means success in unix
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_hyprland_backend_list_windows() {
+        let mut mock = MockCommandExecutor::new();
+        mock.expect_execute()
+            .with(
+                mockall::predicate::eq("hyprctl"),
+                mockall::predicate::eq(vec!["clients".to_string(), "-j".to_string()]),
+            )
+            .times(1)
+            .returning(|_, _| {
+                Ok(mock_success_output(
+                    r#"[
+                {
+                    "class": "org.mozilla.firefox",
+                    "title": "Mozilla Firefox",
+                    "address": "0x12345678"
+                }
+            ]"#,
+                ))
+            });
+
+        let backend = HyprlandBackend;
+        let windows = backend.list_windows(&mock).unwrap();
+
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].title, "Mozilla Firefox");
+        assert_eq!(windows[0].class, "org.mozilla.firefox");
+        assert_eq!(windows[0].address, "0x12345678");
+    }
+
+    #[test]
+    fn test_wlrctl_backend_list_windows() {
+        let mut mock = MockCommandExecutor::new();
+        mock.expect_execute()
+            .with(
+                mockall::predicate::eq("wlrctl"),
+                mockall::predicate::eq(vec!["toplevel".to_string(), "list".to_string()]),
+            )
+            .times(1)
+            .returning(|_, _| Ok(mock_success_output("org.wezfurlong.wezterm: WezTerm\n")));
+
+        let backend = WlrctlBackend;
+        let windows = backend.list_windows(&mock).unwrap();
+
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].title, "WezTerm");
+        assert_eq!(windows[0].class, "org.wezfurlong.wezterm");
+    }
+
+    #[test]
+    fn test_wmctrl_backend_list_windows() {
+        let mut mock = MockCommandExecutor::new();
+        mock.expect_execute()
+            .with(
+                mockall::predicate::eq("wmctrl"),
+                mockall::predicate::eq(vec!["-l".to_string(), "-x".to_string()]),
+            )
+            .times(1)
+            .returning(|_, _| {
+                Ok(mock_success_output(
+                    "0x02800003  0 pycharm.PyCharm  ubuntu PyCharm Projects\n",
+                ))
+            });
+
+        let backend = WmctrlBackend;
+        let windows = backend.list_windows(&mock).unwrap();
+
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].title, "PyCharm Projects");
+        assert_eq!(windows[0].class, "PyCharm");
     }
 }

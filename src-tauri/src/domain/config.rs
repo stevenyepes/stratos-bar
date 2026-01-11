@@ -51,6 +51,15 @@ pub struct AppConfig {
     pub window_scale: Option<f32>,
 
     pub theme: Option<ThemeConfig>,
+
+    #[serde(default)]
+    pub file_search: FileSearchConfig,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct FileSearchConfig {
+    #[serde(default)]
+    pub include_hidden: bool,
 }
 
 impl AppConfig {

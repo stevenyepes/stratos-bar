@@ -7,12 +7,16 @@ use std::error::Error;
 
 pub struct GoogleTranslationService {
     client: Client,
+    base_url: String,
 }
 
 impl GoogleTranslationService {
-    pub fn new() -> Self {
+    pub fn new(base_url: Option<String>) -> Self {
         Self {
             client: Client::new(),
+            base_url: base_url.unwrap_or_else(|| {
+                "https://translate.googleapis.com/translate_a/single".to_string()
+            }),
         }
     }
 }
@@ -26,12 +30,10 @@ impl TranslationService for GoogleTranslationService {
         let source_lang = request.source_lang.unwrap_or_else(|| "auto".to_string());
         let target_lang = request.target_lang; // e.g. "en"
 
-        let url = "https://translate.googleapis.com/translate_a/single";
-
         // client=gtx & sl=auto & tl=en & dt=t & q=...
         let res = self
             .client
-            .get(url)
+            .get(&self.base_url)
             .query(&[
                 ("client", "gtx"),
                 ("sl", &source_lang),
@@ -78,5 +80,57 @@ impl TranslationService for GoogleTranslationService {
             source_language: detected_source,
             target_language: target_lang,
         })
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn test_translate_success() {
+        let mock_server = MockServer::start().await;
+
+        // Simplified Google Translate API response
+        // [[["Hola","Hello",null,null,10]],null,"en",...]
+        let response_body = serde_json::json!([[["Hola", "Hello", null, null, 10]], null, "en"]);
+
+        Mock::given(method("GET"))
+            .and(path("/translate_a/single"))
+            .and(query_param("sl", "auto"))
+            .and(query_param("tl", "es"))
+            .and(query_param("q", "Hello"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+            .mount(&mock_server)
+            .await;
+
+        // Use the mock server URI as base_url
+        // Note: mock_server.uri() returns "http://127.0.0.1:xxx".
+        // Our service appends "?..." to it.
+        // However, the service code does: let url = format!("{}/translate_a/single", self.base_url); NO
+        // The service code does: client.get(&self.base_url)
+        // So we need to pass the FULL path in the base_url or change the service logic to append path.
+        // Currently service logic: client.get(&self.base_url)
+        // And default base_url is "https://translate.googleapis.com/translate_a/single"
+        // So for the mock, we should pass "http://127.0.0.1:xxx/translate_a/single"
+
+        let mut base_url = mock_server.uri();
+        base_url.push_str("/translate_a/single");
+
+        let service = GoogleTranslationService::new(Some(base_url));
+
+        let result = service
+            .translate(TranslationRequest {
+                text: "Hello".to_string(),
+                source_lang: None,
+                target_lang: "es".to_string(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.translated_text, "Hola");
+        assert_eq!(result.source_language, "en");
+        assert_eq!(result.target_language, "es");
     }
 }

@@ -49,6 +49,17 @@
                 
                 <!-- General / Model Settings -->
                 <div v-if="activeTab === 'general'" key="general">
+                  <div class="section-title mb-4">File Search</div>
+                  <v-switch
+                    v-model="config.file_search.include_hidden"
+                    label="Include Hidden Files"
+                    color="primary"
+                    hide-details
+                    density="comfortable"
+                    class="mb-6"
+                    @update:model-value="autoSave"
+                  ></v-switch>
+
                   <div class="section-title mb-6">AI Configuration</div>
                   
                   <v-select
@@ -110,6 +121,8 @@
                       ></v-text-field>
                     </div>
                   </v-expand-transition>
+
+
 
                   <!-- Connection Check -->
                   <div class="d-flex align-center mt-2 mb-4">
@@ -542,6 +555,9 @@ const config = ref({
         surface: '#24283b',
         text: '#c0caf5',
         is_custom: false
+    },
+    file_search: {
+        include_hidden: false
     }
 })
 const ollamaModels = ref([])

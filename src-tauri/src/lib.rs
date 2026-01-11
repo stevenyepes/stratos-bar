@@ -33,7 +33,8 @@ pub fn run() {
             let icon_resolver = Arc::new(CachedIconResolver::new());
             // FsAppRepository needs icon resolver
             let app_repository = Arc::new(FsAppRepository::new(icon_resolver.clone()));
-            let window_service = Arc::new(LinuxWindowService::new());
+            let command_executor = Arc::new(adapters::linux_window_service::StdCommandExecutor);
+            let window_service = Arc::new(LinuxWindowService::new(command_executor));
             let ai_service = Arc::new(HttpAiService::new());
 
             let app_data_dir = app
@@ -41,7 +42,7 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| PathBuf::from("."));
             let history_repository = Arc::new(FileHistoryAdapter::new(app_data_dir));
-            let translation_service = Arc::new(GoogleTranslationService::new());
+            let translation_service = Arc::new(GoogleTranslationService::new(None));
 
             // Manage State
             app.manage(AppState {
