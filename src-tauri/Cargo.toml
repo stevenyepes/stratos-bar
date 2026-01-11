@@ -1,6 +1,6 @@
 [package]
 name = "stratos-bar"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "A sophisticated command palette for power users."
 repository = "https://github.com/yourusername/stratos-bar"
