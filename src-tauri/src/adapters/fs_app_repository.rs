@@ -34,17 +34,25 @@ impl FsAppRepository {
     }
 
     pub fn new_with_handle(icon_resolver: Arc<dyn IconResolver>, app_handle: AppHandle) -> Self {
-        let repo = Self {
+        Self {
             icon_resolver,
             custom_paths: Mutex::new(Vec::new()),
             cache: Mutex::new(Vec::new()),
-            app_handle: Some(app_handle.clone()),
+            app_handle: Some(app_handle),
             watcher: Mutex::new(None),
             use_default_paths: true,
-        };
-        repo.spawn_initial_scan();
-        repo.start_watcher();
-        repo
+        }
+    }
+
+    /// Kick off the warm-up scan and filesystem watcher.
+    ///
+    /// Must be called *after* `AppState` is `manage()`d, because the spawned
+    /// scan and the watcher callback both look the state up via the
+    /// `AppHandle`. Calling this from inside the constructor races `manage()`
+    /// and panics with `state() called before manage()`.
+    pub fn start_background_tasks(&self) {
+        self.spawn_initial_scan();
+        self.start_watcher();
     }
 
     #[cfg(test)]

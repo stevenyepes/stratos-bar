@@ -49,7 +49,7 @@ pub fn run() {
 
             // Manage State
             app.manage(AppState {
-                app_repository,
+                app_repository: app_repository.clone(),
                 window_service,
                 config_service: config_service.clone(),
                 icon_resolver: icon_resolver.clone(),
@@ -57,6 +57,10 @@ pub fn run() {
                 history_repository,
                 translation_service,
             });
+
+            // Background scan + filesystem watcher must start *after* manage(),
+            // because both look the AppState up through the AppHandle.
+            app_repository.start_background_tasks();
 
             // Initialize KSNI Tray Service
             let handle = app.handle().clone();
