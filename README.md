@@ -183,7 +183,7 @@ StratosBar features a **single, dynamic window** that transforms based on your i
 
 ## 📥 Installation
 
-StratosBar supports multiple Linux distributions. Download the latest release from the [Releases page](https://github.com/yourusername/stratos-bar/releases).
+StratosBar supports multiple Linux distributions. Download the latest release from the [Releases page](https://github.com/stevenyepes/stratos-bar/releases).
 
 ### Ubuntu / Debian
 Download the `.deb` package and install:
@@ -204,28 +204,21 @@ chmod +x stratos-bar_0.1.2_amd64.AppImage
 ./stratos-bar_0.1.2_amd64.AppImage
 ```
 
-### Arch Linux
-You can build and install directly from the source using the provided `PKGBUILD`.
+### Arch Linux / Manjaro / CachyOS / Endeavour
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/stratos-bar.git
-   cd stratos-bar
-   ```
+**From AUR (recommended):**
+```bash
+yay -S stratos-bar
+```
 
-2. Navigate to the Arch package directory:
-   ```bash
-   cd pkg/arch
-   ```
+**From source:**
+```bash
+git clone https://github.com/stevenyepes/stratos-bar.git
+cd stratos-bar/pkg/arch
+./install.sh
+```
 
-3. Build and install:
-   ```bash
-   # Using the convenience script
-   ./install.sh
-
-   # OR manually with makepkg
-   makepkg -si
-   ```
+`install.sh` runs a pre-flight check for required system packages (`webkit2gtk-4.1`, `gtk3`, `libappindicator-gtk3`) and then builds + installs via `makepkg -si`.
 
 ---
 
