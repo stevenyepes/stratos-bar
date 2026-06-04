@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct ThemeConfig {
@@ -54,6 +55,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub file_search: FileSearchConfig,
+
+    #[serde(default)]
+    pub custom_app_dirs: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
