@@ -49,9 +49,10 @@ import { useAI } from './composables/useAI'
 import { useScriptRunner } from './composables/useScriptRunner'
 
 // Composables
-const { 
+const {
   uiState, config, apps, showSettings,
   updateWindowSize, hideWindow, loadData, reloadConfig,
+  subscribeAppUpdates,
   searchInput, query
 } = useOmnibar()
 
@@ -61,6 +62,8 @@ const { setupScriptListeners, closeTerminal, cleanupScriptListeners } = useScrip
 const appWindow = getCurrentWindow()
 
 // Lifecycle
+let unlistenApps = null
+
 onMounted(async () => {
   try {
     // 1. Resize and show window immediately
@@ -70,20 +73,21 @@ onMounted(async () => {
 
     // 2. Load heavy data
     loadData()
-    
+
     // 3. Setup listeners
+    unlistenApps = await subscribeAppUpdates()
     await setupAiListeners()
     await setupScriptListeners()
-    
+
   } catch (e) {
     console.error('Failed to initialize', e)
     await appWindow.show()
   }
-  
+
   await listen('window-shown', () => {
      handleWindowFocus()
   })
-  
+
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('reload-config', reloadConfig)
   window.addEventListener('focus', handleWindowFocus)
@@ -93,7 +97,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('reload-config', reloadConfig)
   window.removeEventListener('focus', handleWindowFocus)
-  
+
+  if (unlistenApps) unlistenApps()
   cleanupAiListeners()
   cleanupScriptListeners()
 })

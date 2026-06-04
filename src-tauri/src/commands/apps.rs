@@ -2,9 +2,9 @@ use crate::domain::apps::AppEntry;
 use crate::ports::app_port::AppRepository;
 use crate::state::AppState;
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use tauri::State;
 
-// Handler logic for testing
 pub fn list_apps_logic(repo: &dyn AppRepository) -> Result<Vec<AppEntry>, String> {
     repo.list_apps()
 }
@@ -14,7 +14,24 @@ pub async fn list_apps(state: State<'_, AppState>) -> Result<Vec<AppEntry>, Stri
     list_apps_logic(&*state.app_repository)
 }
 
-// Helper to clean exec command - exposed for testing
+pub fn rescan_apps_logic(repo: &dyn AppRepository) -> Result<Vec<AppEntry>, String> {
+    repo.rescan()
+}
+
+#[tauri::command]
+pub async fn rescan_apps(state: State<'_, AppState>) -> Result<Vec<AppEntry>, String> {
+    rescan_apps_logic(&*state.app_repository)
+}
+
+#[tauri::command]
+pub async fn set_custom_app_dirs(
+    state: State<'_, AppState>,
+    paths: Vec<PathBuf>,
+) -> Result<(), String> {
+    state.app_repository.set_custom_paths(paths);
+    Ok(())
+}
+
 pub fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
     let cleaned = exec_cmd
         .replace("%f", "")
@@ -23,7 +40,14 @@ pub fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
         .replace("%U", "")
         .replace("%i", "")
         .replace("%c", "")
-        .replace("%k", "");
+        .replace("%k", "")
+        .replace("%d", "")
+        .replace("%D", "")
+        .replace("%n", "")
+        .replace("%N", "")
+        .replace("%v", "")
+        .replace("%m", "")
+        .replace("%M", "");
 
     let parts = shell_words::split(&cleaned).ok()?;
     if parts.is_empty() {
@@ -39,12 +63,16 @@ pub fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
 pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
     let (cmd, args) = parse_exec_command(&exec_cmd).ok_or_else(|| "Empty command".to_string())?;
 
+    if !cmd.contains('/') && which::which(&cmd).is_err() {
+        return Err(format!("Command not found in PATH: {cmd}"));
+    }
+
     std::process::Command::new(cmd)
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .process_group(0) // Sets the process group ID to the child's PID effectively creating a new session
+        .process_group(0)
         .spawn()
         .map_err(|e| e.to_string())?;
 
@@ -54,6 +82,7 @@ pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::apps::AppSource;
     use crate::ports::app_port::MockAppRepository;
 
     #[test]
@@ -61,9 +90,18 @@ mod tests {
         let mut mock = MockAppRepository::new();
         mock.expect_list_apps().times(1).returning(|| {
             Ok(vec![AppEntry {
+                id: "test".to_string(),
                 name: "Test App".to_string(),
+                generic_name: None,
+                description: None,
+                keywords: Vec::new(),
                 exec: "test".to_string(),
+                try_exec: None,
                 icon: None,
+                categories: Vec::new(),
+                startup_wm_class: None,
+                source: AppSource::Desktop,
+                path: "/tmp/test.desktop".to_string(),
             }])
         });
 
@@ -75,14 +113,19 @@ mod tests {
     }
 
     #[test]
+    fn test_rescan_apps() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_rescan().times(1).returning(|| Ok(vec![]));
+        let result = rescan_apps_logic(&mock);
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_parse_exec_command() {
-        // Simple command
         assert_eq!(
             parse_exec_command("firefox"),
             Some(("firefox".to_string(), vec![]))
         );
-
-        // Command with args
         assert_eq!(
             parse_exec_command("echo hello world"),
             Some((
@@ -90,14 +133,10 @@ mod tests {
                 vec!["hello".to_string(), "world".to_string()]
             ))
         );
-
-        // Command with % codes that should be removed
         assert_eq!(
             parse_exec_command("vlc %U"),
             Some(("vlc".to_string(), vec![]))
         );
-
-        // Complex quoted args
         assert_eq!(
             parse_exec_command("grep \"hello world\" file.txt"),
             Some((
@@ -105,8 +144,6 @@ mod tests {
                 vec!["hello world".to_string(), "file.txt".to_string()]
             ))
         );
-
-        // Empty/Invalid
         assert_eq!(parse_exec_command(""), None);
     }
 }

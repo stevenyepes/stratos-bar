@@ -297,10 +297,14 @@ export function useOmnibar() {
         const q = query.value.toLowerCase()
 
         // 1. Filter
-        let matches = apps.value.filter(app =>
-            app.name.toLowerCase().includes(q) ||
-            app.exec.toLowerCase().includes(q)
-        )
+        let matches = apps.value.filter(app => {
+            if (app.name.toLowerCase().includes(q)) return true
+            if (app.exec.toLowerCase().includes(q)) return true
+            if (app.generic_name && app.generic_name.toLowerCase().includes(q)) return true
+            if (app.description && app.description.toLowerCase().includes(q)) return true
+            if (app.keywords && app.keywords.some(k => k.toLowerCase().includes(q))) return true
+            return false
+        })
 
         // 2. Rank using history
         const recentMap = new Map()
@@ -432,6 +436,13 @@ export function useOmnibar() {
         }
     }
 
+    async function subscribeAppUpdates() {
+        const { listen } = await import('@tauri-apps/api/event')
+        return await listen('apps-updated', (e) => {
+            apps.value = e.payload
+        })
+    }
+
     return {
         // State
         uiState,
@@ -459,6 +470,7 @@ export function useOmnibar() {
         loadData,
         recordAction,
         clearActions,
+        subscribeAppUpdates,
         recentActions
     }
 }

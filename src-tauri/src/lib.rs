@@ -32,7 +32,10 @@ pub fn run() {
             let config_service = Arc::new(FsConfigService::new());
             let icon_resolver = Arc::new(CachedIconResolver::new());
             // FsAppRepository needs icon resolver
-            let app_repository = Arc::new(FsAppRepository::new(icon_resolver.clone()));
+            let app_repository = Arc::new(FsAppRepository::new_with_handle(
+                icon_resolver.clone(),
+                app.handle().clone(),
+            ));
             let command_executor = Arc::new(adapters::linux_window_service::StdCommandExecutor);
             let window_service = Arc::new(LinuxWindowService::new(command_executor));
             let ai_service = Arc::new(HttpAiService::new());
@@ -80,6 +83,8 @@ pub fn run() {
             commands::system::check_is_executable,
             commands::system::make_file_executable,
             commands::apps::list_apps,
+            commands::apps::rescan_apps,
+            commands::apps::set_custom_app_dirs,
             commands::apps::launch_app,
             commands::config::get_config,
             commands::config::save_config,
