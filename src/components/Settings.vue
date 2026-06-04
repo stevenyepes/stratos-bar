@@ -60,6 +60,35 @@
                     @update:model-value="autoSave"
                   ></v-switch>
 
+                  <div class="section-title mb-4">App Discovery</div>
+                  <div class="d-flex align-center mb-4">
+                    <v-btn
+                      prepend-icon="mdi-refresh"
+                      color="primary"
+                      variant="tonal"
+                      class="text-none"
+                      :loading="rescanning"
+                      @click="rescanApps"
+                    >Rescan Apps</v-btn>
+                    <span class="text-caption text-medium-emphasis ml-3">{{ appsCount }} apps indexed</span>
+                  </div>
+
+                  <div class="text-caption text-medium-emphasis mb-2">Custom Directories</div>
+                  <div v-if="!config.custom_app_dirs || config.custom_app_dirs.length === 0" class="text-caption text-disabled mb-3">
+                    No custom directories. Scans XDG paths, Flatpak exports, Snap, and ~/Applications by default.
+                  </div>
+                  <div v-for="(dir, i) in config.custom_app_dirs" :key="i" class="d-flex align-center mb-2">
+                    <v-icon icon="mdi-folder-outline" size="small" class="mr-2 text-medium-emphasis"></v-icon>
+                    <span class="text-body-2 font-mono text-truncate flex-grow-1">{{ dir }}</span>
+                    <v-btn icon="mdi-close" variant="text" size="x-small" density="compact" @click="removeCustomDir(i)"></v-btn>
+                  </div>
+                  <v-btn
+                    prepend-icon="mdi-folder-plus-outline"
+                    variant="text"
+                    class="text-none"
+                    @click="addCustomDir"
+                  >Add Directory</v-btn>
+
                   <div class="section-title mb-6">AI Configuration</div>
                   
                   <v-select
@@ -539,9 +568,9 @@ const activeTitle = computed(() => {
   return item ? item.title : 'Settings'
 })
 
-const config = ref({ 
+const config = ref({
     preferred_model: 'local',
-    ai_tools: [], 
+    ai_tools: [],
     scripts: [],
     shortcuts: {},
     local_model_url: 'http://localhost:11434',
@@ -558,7 +587,8 @@ const config = ref({
     },
     file_search: {
         include_hidden: false
-    }
+    },
+    custom_app_dirs: []
 })
 const ollamaModels = ref([])
 const fetchingModels = ref(false)
@@ -876,6 +906,40 @@ function debouncedSave() {
     debounceTimeout = setTimeout(async () => {
         await save()
     }, 800)
+}
+
+const rescanning = ref(false)
+const appsCount = ref(0)
+
+watch(() => props.apps, (val) => {
+    appsCount.value = (val || []).length
+}, { immediate: true })
+
+async function rescanApps() {
+    rescanning.value = true
+    try {
+        const apps = await invoke('rescan_apps')
+        appsCount.value = (apps || []).length
+    } catch (e) {
+        console.error('Failed to rescan apps', e)
+    } finally {
+        rescanning.value = false
+    }
+}
+
+async function addCustomDir() {
+    const selected = await open({ directory: true, multiple: false })
+    if (!selected) return
+    if (!config.value.custom_app_dirs) config.value.custom_app_dirs = []
+    if (!config.value.custom_app_dirs.includes(selected)) {
+        config.value.custom_app_dirs.push(selected)
+        await invoke('set_custom_app_dirs', { paths: config.value.custom_app_dirs })
+    }
+}
+
+async function removeCustomDir(index) {
+    config.value.custom_app_dirs.splice(index, 1)
+    await invoke('set_custom_app_dirs', { paths: config.value.custom_app_dirs })
 }
 
 </script>
