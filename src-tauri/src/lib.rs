@@ -108,6 +108,8 @@ pub fn run() {
             commands::history::record_action,
             commands::history::clear_history,
             commands::translation::translate,
+            commands::discover::search_discoverable,
+            commands::discover::warm_discover_index_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -145,5 +147,15 @@ mod tests {
     #[test]
     fn save_config_command_is_exported() {
         let _f = commands::config::save_config;
+    }
+
+    #[test]
+    fn search_discoverable_command_is_exported() {
+        let _f = commands::discover::search_discoverable;
+    }
+
+    #[test]
+    fn warm_discover_index_command_is_exported() {
+        let _f = commands::discover::warm_discover_index_command;
     }
 }
