@@ -1,6 +1,7 @@
-use crate::domain::apps::AppEntry;
+use crate::domain::apps::{AppEntry, ScoredApp};
 use crate::ports::app_port::AppRepository;
 use crate::state::AppState;
+use crate::utils::fuzzy::rank_apps;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use tauri::State;
@@ -21,6 +22,25 @@ pub fn rescan_apps_logic(repo: &dyn AppRepository) -> Result<Vec<AppEntry>, Stri
 #[tauri::command]
 pub async fn rescan_apps(state: State<'_, AppState>) -> Result<Vec<AppEntry>, String> {
     rescan_apps_logic(&*state.app_repository)
+}
+
+pub fn search_apps_logic(repo: &dyn AppRepository, query: &str, limit: usize) -> Vec<ScoredApp> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    match repo.list_apps() {
+        Ok(apps) => rank_apps(&apps, query, limit),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+pub async fn search_apps(
+    state: State<'_, AppState>,
+    query: String,
+    limit: usize,
+) -> Result<Vec<ScoredApp>, String> {
+    Ok(search_apps_logic(&*state.app_repository, &query, limit))
 }
 
 #[tauri::command]
@@ -82,8 +102,25 @@ pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::apps::AppSource;
+    use crate::domain::apps::{AppSource, MatchedField};
     use crate::ports::app_port::MockAppRepository;
+
+    fn fixture(name: &str) -> AppEntry {
+        AppEntry {
+            id: name.to_lowercase(),
+            name: name.to_string(),
+            generic_name: None,
+            description: None,
+            keywords: Vec::new(),
+            exec: name.to_lowercase(),
+            try_exec: None,
+            icon: None,
+            categories: Vec::new(),
+            startup_wm_class: None,
+            source: AppSource::Desktop,
+            path: format!("/tmp/{name}.desktop"),
+        }
+    }
 
     #[test]
     fn test_list_apps() {
@@ -118,6 +155,59 @@ mod tests {
         mock.expect_rescan().times(1).returning(|| Ok(vec![]));
         let result = rescan_apps_logic(&mock);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_search_apps_logic_ranks_matches() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(1).returning(|| {
+            Ok(vec![
+                fixture("Chrome"),
+                fixture("Chromium"),
+                fixture("Figma"),
+                fixture("Cursor"),
+            ])
+        });
+
+        let result = search_apps_logic(&mock, "chr", 10);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].app.name, "Chrome");
+        assert_eq!(result[1].app.name, "Chromium");
+        assert_eq!(result[0].matched_field, MatchedField::NamePrefix);
+    }
+
+    #[test]
+    fn test_search_apps_logic_respects_limit() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(1).returning(|| {
+            Ok((0..10).map(|i| fixture(&format!("App{i}"))).collect())
+        });
+
+        let result = search_apps_logic(&mock, "app", 3);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_search_apps_logic_empty_query_returns_empty() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(0..=1).returning(|| Ok(vec![]));
+
+        let result = search_apps_logic(&mock, "", 10);
+        assert!(result.is_empty());
+
+        let result = search_apps_logic(&mock, "   ", 10);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_search_apps_logic_returns_empty_when_repository_fails() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps()
+            .times(1)
+            .returning(|| Err("boom".to_string()));
+
+        let result = search_apps_logic(&mock, "chr", 10);
+        assert!(result.is_empty());
     }
 
     #[test]

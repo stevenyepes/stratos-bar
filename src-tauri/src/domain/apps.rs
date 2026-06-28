@@ -27,6 +27,24 @@ pub enum AppSource {
     Other,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchedField {
+    NamePrefix,
+    NameContains,
+    Keyword,
+    GenericName,
+    Description,
+    Exec,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ScoredApp {
+    pub app: AppEntry,
+    pub score: f32,
+    pub matched_field: MatchedField,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +71,41 @@ mod tests {
         assert_eq!(app.exec, "firefox");
         assert_eq!(app.icon.as_deref(), Some("firefox.png"));
         assert_eq!(app.source, AppSource::Desktop);
+    }
+
+    #[test]
+    fn test_scored_app_creation() {
+        let app = AppEntry {
+            id: "firefox".to_string(),
+            name: "Firefox".to_string(),
+            generic_name: None,
+            description: None,
+            keywords: Vec::new(),
+            exec: "firefox".to_string(),
+            try_exec: None,
+            icon: None,
+            categories: Vec::new(),
+            startup_wm_class: None,
+            source: AppSource::Desktop,
+            path: "/usr/share/applications/firefox.desktop".to_string(),
+        };
+
+        let scored = ScoredApp {
+            app,
+            score: 1.25,
+            matched_field: MatchedField::NamePrefix,
+        };
+
+        assert_eq!(scored.app.name, "Firefox");
+        assert_eq!(scored.matched_field, MatchedField::NamePrefix);
+        assert!((scored.score - 1.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_matched_field_serializes_snake_case() {
+        let json = serde_json::to_string(&MatchedField::NamePrefix).unwrap();
+        assert_eq!(json, "\"name_prefix\"");
+        let json = serde_json::to_string(&MatchedField::GenericName).unwrap();
+        assert_eq!(json, "\"generic_name\"");
     }
 }
