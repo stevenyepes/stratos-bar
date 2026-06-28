@@ -32,6 +32,116 @@ pub struct AiTool {
     pub icon: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct QuickActions {
+    #[serde(default)]
+    pub pinned_favorites: Vec<String>,
+    #[serde(default)]
+    pub app_aliases: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub skill_aliases: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub keyword_shortcuts: HashMap<String, String>,
+    #[serde(default)]
+    pub top_used_seed: Vec<String>,
+    #[serde(default)]
+    pub seed_initialized: bool,
+}
+
+impl QuickActions {
+    pub const ALIAS_MAX_LEN: usize = 32;
+
+    pub fn is_valid_alias(alias: &str) -> bool {
+        if alias.is_empty() || alias.chars().count() > Self::ALIAS_MAX_LEN {
+            return false;
+        }
+        alias
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ' ' || c == '.' || c == '-')
+    }
+
+    pub fn apply_defaults(&mut self) {
+        if !self.seed_initialized {
+            if self.top_used_seed.is_empty() {
+                self.top_used_seed = default_top_used_apps();
+            }
+            self.seed_initialized = true;
+        }
+    }
+
+    pub fn set_app_aliases(
+        &mut self,
+        app_id: &str,
+        aliases: Vec<String>,
+    ) -> Result<(), String> {
+        for alias in &aliases {
+            if !Self::is_valid_alias(alias) {
+                return Err(format!("invalid alias: {alias:?}"));
+            }
+        }
+        if aliases.is_empty() {
+            self.app_aliases.remove(app_id);
+        } else {
+            self.app_aliases.insert(app_id.to_string(), aliases);
+        }
+        Ok(())
+    }
+
+    pub fn set_skill_aliases(
+        &mut self,
+        skill_id: &str,
+        aliases: Vec<String>,
+    ) -> Result<(), String> {
+        for alias in &aliases {
+            if !Self::is_valid_alias(alias) {
+                return Err(format!("invalid alias: {alias:?}"));
+            }
+        }
+        if aliases.is_empty() {
+            self.skill_aliases.remove(skill_id);
+        } else {
+            self.skill_aliases.insert(skill_id.to_string(), aliases);
+        }
+        Ok(())
+    }
+
+    pub fn set_keyword_shortcut(&mut self, keyword: &str, target: &str) -> Result<(), String> {
+        if !Self::is_valid_alias(keyword) {
+            return Err(format!("invalid keyword: {keyword:?}"));
+        }
+        if target.is_empty() {
+            self.keyword_shortcuts.remove(keyword);
+        } else {
+            self.keyword_shortcuts
+                .insert(keyword.to_string(), target.to_string());
+        }
+        Ok(())
+    }
+
+    pub fn pin_favorite(&mut self, app_id: &str) {
+        if !self.pinned_favorites.iter().any(|p| p == app_id) {
+            self.pinned_favorites.push(app_id.to_string());
+        }
+    }
+
+    pub fn unpin_favorite(&mut self, app_id: &str) {
+        self.pinned_favorites.retain(|p| p != app_id);
+    }
+}
+
+fn default_top_used_apps() -> Vec<String> {
+    vec![
+        "google-chrome".to_string(),
+        "firefox".to_string(),
+        "code".to_string(),
+        "cursor".to_string(),
+        "kitty".to_string(),
+        "alacritty".to_string(),
+        "thunderbird".to_string(),
+        "spotify".to_string(),
+    ]
+}
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct AppConfig {
     pub openai_api_key: Option<String>,
@@ -58,6 +168,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub custom_app_dirs: Vec<PathBuf>,
+
+    #[serde(default)]
+    pub quick_actions: QuickActions,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -101,6 +214,8 @@ impl AppConfig {
                  icon: "✏️".to_string()
              });
         }
+
+        self.quick_actions.apply_defaults();
     }
 }
 
@@ -155,5 +270,96 @@ mod tests {
 
         // But should still fill in missing ones (ai_tools)
         assert!(!config.ai_tools.is_empty());
+    }
+
+    #[test]
+    fn test_apply_defaults_seeds_quick_actions_on_first_run() {
+        let mut config = AppConfig::default();
+        assert!(!config.quick_actions.seed_initialized);
+        assert!(config.quick_actions.top_used_seed.is_empty());
+
+        config.apply_defaults();
+
+        assert!(config.quick_actions.seed_initialized);
+        assert!(!config.quick_actions.top_used_seed.is_empty());
+        assert!(config
+            .quick_actions
+            .top_used_seed
+            .contains(&"google-chrome".to_string()));
+    }
+
+    #[test]
+    fn test_apply_defaults_preserves_quick_actions_seed() {
+        let mut config = AppConfig::default();
+        config.quick_actions.seed_initialized = true;
+        config.quick_actions.top_used_seed = vec!["custom-app".to_string()];
+
+        config.apply_defaults();
+
+        assert_eq!(
+            config.quick_actions.top_used_seed,
+            vec!["custom-app".to_string()]
+        );
+        assert!(config.quick_actions.seed_initialized);
+    }
+
+    #[test]
+    fn test_is_valid_alias_accepts_alnum_underscore_dot_dash_space() {
+        assert!(QuickActions::is_valid_alias("browser"));
+        assert!(QuickActions::is_valid_alias("g cal"));
+        assert!(QuickActions::is_valid_alias("g_cal"));
+        assert!(QuickActions::is_valid_alias("g-cal"));
+        assert!(QuickActions::is_valid_alias("g.cal"));
+        assert!(QuickActions::is_valid_alias("Slack123"));
+    }
+
+    #[test]
+    fn test_is_valid_alias_rejects_empty_too_long_and_disallowed_chars() {
+        assert!(!QuickActions::is_valid_alias(""));
+        assert!(!QuickActions::is_valid_alias(&"a".repeat(33)));
+        assert!(!QuickActions::is_valid_alias("g;cal"));
+        assert!(!QuickActions::is_valid_alias("rm -rf /"));
+        assert!(!QuickActions::is_valid_alias("hello/world"));
+        assert!(!QuickActions::is_valid_alias("héllo"));
+    }
+
+    #[test]
+    fn test_quick_actions_serde_round_trip() {
+        let mut quick = QuickActions::default();
+        quick
+            .set_app_aliases("google-chrome", vec!["browser".to_string()])
+            .unwrap();
+        quick
+            .set_skill_aliases("rephrase", vec!["rewrite".to_string()])
+            .unwrap();
+        quick
+            .set_keyword_shortcut("slack", "slack-desktop")
+            .unwrap();
+        quick
+            .set_keyword_shortcut("g cal", "https://calendar.google.com")
+            .unwrap();
+        quick.pin_favorite("code");
+        quick.pin_favorite("cursor");
+
+        let json = serde_json::to_string(&quick).unwrap();
+        let parsed: QuickActions = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, quick);
+    }
+
+    #[test]
+    fn test_quick_actions_set_app_aliases_rejects_invalid() {
+        let mut quick = QuickActions::default();
+        let result = quick.set_app_aliases("google-chrome", vec!["rm -rf /".to_string()]);
+        assert!(result.is_err());
+        assert!(quick.app_aliases.is_empty());
+    }
+
+    #[test]
+    fn test_quick_actions_unpin_favorite_removes_entry() {
+        let mut quick = QuickActions::default();
+        quick.pin_favorite("code");
+        quick.pin_favorite("cursor");
+        quick.unpin_favorite("code");
+        assert_eq!(quick.pinned_favorites, vec!["cursor".to_string()]);
     }
 }

@@ -1,4 +1,4 @@
-use crate::domain::config::AppConfig;
+use crate::domain::config::{AppConfig, QuickActions};
 use crate::ports::config_port::ConfigService;
 use std::fs;
 use std::path::PathBuf;
@@ -63,11 +63,18 @@ impl ConfigService for FsConfigService {
             Err("Could not find config directory".to_string())
         }
     }
+
+    fn set_quick_actions(&self, actions: QuickActions) -> Result<(), String> {
+        let mut config = self.load_config();
+        config.quick_actions = actions;
+        self.save_config(&config)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use tempfile::tempdir;
 
     #[test]
@@ -94,5 +101,97 @@ mod tests {
         let config = service.load_config();
         // Should have defaults applied
         assert_eq!(config.preferred_model, "local");
+    }
+
+    #[test]
+    fn test_quick_actions_persists_through_disk_round_trip() {
+        let dir = tempdir().unwrap();
+        let service = FsConfigService::new_with_root(dir.path().to_path_buf());
+
+        let mut quick = QuickActions::default();
+        let mut app_aliases = HashMap::new();
+        app_aliases.insert(
+            "google-chrome".to_string(),
+            vec!["browser".to_string()],
+        );
+        quick.app_aliases = app_aliases;
+        let mut skill_aliases = HashMap::new();
+        skill_aliases.insert("rephrase".to_string(), vec!["rewrite".to_string()]);
+        quick.skill_aliases = skill_aliases;
+        let mut keyword_shortcuts = HashMap::new();
+        keyword_shortcuts.insert("slack".to_string(), "slack-desktop".to_string());
+        keyword_shortcuts.insert(
+            "g cal".to_string(),
+            "https://calendar.google.com".to_string(),
+        );
+        quick.keyword_shortcuts = keyword_shortcuts;
+        quick.pinned_favorites = vec!["google-chrome".to_string(), "code".to_string()];
+
+        service
+            .set_quick_actions(quick.clone())
+            .expect("set_quick_actions should succeed");
+
+        // Simulate a fresh process: build a new service backed by the same dir.
+        let reloaded = FsConfigService::new_with_root(dir.path().to_path_buf());
+        let reloaded_actions = reloaded.load_config().quick_actions;
+
+        assert_eq!(
+            reloaded_actions.app_aliases.get("google-chrome"),
+            Some(&vec!["browser".to_string()])
+        );
+        assert_eq!(
+            reloaded_actions.skill_aliases.get("rephrase"),
+            Some(&vec!["rewrite".to_string()])
+        );
+        assert_eq!(
+            reloaded_actions.keyword_shortcuts.get("slack"),
+            Some(&"slack-desktop".to_string())
+        );
+        assert_eq!(
+            reloaded_actions.keyword_shortcuts.get("g cal"),
+            Some(&"https://calendar.google.com".to_string())
+        );
+        assert_eq!(
+            reloaded_actions.pinned_favorites,
+            vec!["google-chrome".to_string(), "code".to_string()]
+        );
+        assert!(reloaded_actions.seed_initialized);
+    }
+
+    #[test]
+    fn test_load_config_seeds_first_run_top_apps() {
+        let dir = tempdir().unwrap();
+        let service = FsConfigService::new_with_root(dir.path().to_path_buf());
+
+        let config = service.load_config();
+        assert!(config.quick_actions.seed_initialized);
+        assert!(!config.quick_actions.top_used_seed.is_empty());
+        assert!(config
+            .quick_actions
+            .top_used_seed
+            .contains(&"google-chrome".to_string()));
+    }
+
+    #[test]
+    fn test_load_config_is_additive_for_legacy_files() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.json");
+        // Pre-existing config without quick_actions field at all
+        let legacy = r#"{
+            "preferred_model": "cloud",
+            "ai_tools": [],
+            "shortcuts": {},
+            "scripts": [],
+            "theme": null,
+            "file_search": { "include_hidden": false },
+            "custom_app_dirs": []
+        }"#;
+        std::fs::write(&config_path, legacy).unwrap();
+
+        let service = FsConfigService::new_with_root(dir.path().to_path_buf());
+        let config = service.load_config();
+        assert_eq!(config.preferred_model, "cloud");
+        assert!(config.quick_actions.seed_initialized);
+        assert!(!config.quick_actions.top_used_seed.is_empty());
     }
 }
