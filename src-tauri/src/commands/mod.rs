@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod app_index;
 pub mod apps;
 pub mod config;
 pub mod discover;

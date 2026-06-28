@@ -111,6 +111,10 @@ pub fn run() {
             commands::discover::search_discoverable,
             commands::discover::warm_discover_index_command,
             commands::discover::browse_discoverable,
+            commands::app_index::set_app_aliases,
+            commands::app_index::bulk_set_aliases,
+            commands::app_index::set_disabled_sources,
+            commands::app_index::get_app_index_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -163,5 +167,25 @@ mod tests {
     #[test]
     fn browse_discoverable_command_is_exported() {
         let _f = commands::discover::browse_discoverable;
+    }
+
+    #[test]
+    fn set_app_aliases_command_is_exported() {
+        let _f = commands::app_index::set_app_aliases;
+    }
+
+    #[test]
+    fn bulk_set_aliases_command_is_exported() {
+        let _f = commands::app_index::bulk_set_aliases;
+    }
+
+    #[test]
+    fn set_disabled_sources_command_is_exported() {
+        let _f = commands::app_index::set_disabled_sources;
+    }
+
+    #[test]
+    fn get_app_index_status_command_is_exported() {
+        let _f = commands::app_index::get_app_index_status;
     }
 }

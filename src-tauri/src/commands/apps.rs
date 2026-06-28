@@ -1,3 +1,4 @@
+use crate::domain::app_index::LaunchError;
 use crate::domain::apps::{AppEntry, ScoredApp};
 use crate::ports::app_port::AppRepository;
 use crate::state::AppState;
@@ -79,12 +80,34 @@ pub fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
     Some((cmd, args))
 }
 
+pub fn validate_launch_exec(
+    repo: &dyn AppRepository,
+    exec_cmd: &str,
+) -> Result<(String, Vec<String>), LaunchError> {
+    let apps = repo.list_apps().map_err(|_| LaunchError::UnvalidatedExec)?;
+    if apps.is_empty() {
+        return Err(LaunchError::UnvalidatedExec);
+    }
+
+    let (cmd, args) = parse_exec_command(exec_cmd).ok_or(LaunchError::EmptyCommand)?;
+
+    if !apps.iter().any(|a| a.exec == cmd) {
+        return Err(LaunchError::UnvalidatedExec);
+    }
+
+    Ok((cmd, args))
+}
+
 #[tauri::command]
-pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
-    let (cmd, args) = parse_exec_command(&exec_cmd).ok_or_else(|| "Empty command".to_string())?;
+pub async fn launch_app(
+    state: State<'_, AppState>,
+    exec_cmd: String,
+) -> Result<(), String> {
+    let (cmd, args) = validate_launch_exec(&*state.app_repository, &exec_cmd)
+        .map_err(|e| e.to_string())?;
 
     if !cmd.contains('/') && which::which(&cmd).is_err() {
-        return Err(format!("Command not found in PATH: {cmd}"));
+        return Err(LaunchError::CommandNotFound(cmd).to_string());
     }
 
     std::process::Command::new(cmd)
@@ -94,7 +117,7 @@ pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
         .stderr(std::process::Stdio::null())
         .process_group(0)
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| LaunchError::LaunchFailed(e.to_string()).to_string())?;
 
     Ok(())
 }
@@ -237,5 +260,99 @@ mod tests {
             ))
         );
         assert_eq!(parse_exec_command(""), None);
+    }
+
+    #[test]
+    fn alias_launch_uses_canonical_exec() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(1).returning(|| {
+            Ok(vec![AppEntry {
+                id: "google-chrome".to_string(),
+                name: "Google Chrome".to_string(),
+                generic_name: None,
+                description: None,
+                keywords: Vec::new(),
+                exec: "google-chrome".to_string(),
+                try_exec: None,
+                icon: None,
+                categories: Vec::new(),
+                startup_wm_class: None,
+                source: AppSource::Desktop,
+                path: "/usr/share/applications/google-chrome.desktop".to_string(),
+                ..Default::default()
+            }])
+        });
+
+        let poisoned = "rm -rf /";
+        let result = validate_launch_exec(&mock, poisoned);
+        assert!(matches!(result, Err(LaunchError::UnvalidatedExec)));
+    }
+
+    #[test]
+    fn launch_validation_accepts_canonical_exec() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(1).returning(|| {
+            Ok(vec![AppEntry {
+                id: "google-chrome".to_string(),
+                name: "Google Chrome".to_string(),
+                generic_name: None,
+                description: None,
+                keywords: Vec::new(),
+                exec: "google-chrome".to_string(),
+                try_exec: None,
+                icon: None,
+                categories: Vec::new(),
+                startup_wm_class: None,
+                source: AppSource::Desktop,
+                path: "/usr/share/applications/google-chrome.desktop".to_string(),
+                ..Default::default()
+            }])
+        });
+
+        let result = validate_launch_exec(&mock, "google-chrome %U");
+        let (cmd, _args) = result.expect("expected ok");
+        assert_eq!(cmd, "google-chrome");
+    }
+
+    #[test]
+    fn launch_validation_rejects_empty_index() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(1).returning(|| Ok(Vec::new()));
+
+        let result = validate_launch_exec(&mock, "firefox");
+        assert!(matches!(result, Err(LaunchError::UnvalidatedExec)));
+    }
+
+    #[test]
+    fn launch_validation_rejects_empty_command() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(1).returning(|| {
+            Ok(vec![fixture("Firefox")])
+        });
+
+        let result = validate_launch_exec(&mock, "");
+        assert!(matches!(result, Err(LaunchError::EmptyCommand)));
+    }
+
+    #[test]
+    fn launch_validation_treats_repo_failure_as_unvalidated() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps()
+            .times(1)
+            .returning(|| Err("io error".to_string()));
+
+        let result = validate_launch_exec(&mock, "firefox");
+        assert!(matches!(result, Err(LaunchError::UnvalidatedExec)));
+    }
+
+    #[test]
+    fn launch_validation_rejects_exec_not_in_index() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_list_apps().times(1).returning(|| {
+            Ok(vec![fixture("Firefox"), fixture("Chrome")])
+        });
+
+        let result = validate_launch_exec(&mock, "nmap");
+        assert!(matches!(result, Err(LaunchError::UnvalidatedExec)));
     }
 }
