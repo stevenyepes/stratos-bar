@@ -10,6 +10,7 @@ use adapters::cached_icon_resolver::CachedIconResolver;
 use adapters::file_history::FileHistoryAdapter;
 use adapters::fs_app_repository::FsAppRepository;
 use adapters::fs_config_service::FsConfigService;
+use adapters::fuzzy_index::FuzzyIndexAdapter;
 use adapters::google_translation_service::GoogleTranslationService;
 use adapters::http_ai_service::HttpAiService;
 use adapters::linux_window_service::LinuxWindowService;
@@ -46,6 +47,7 @@ pub fn run() {
                 .unwrap_or_else(|_| PathBuf::from("."));
             let history_repository = Arc::new(FileHistoryAdapter::new(app_data_dir));
             let translation_service = Arc::new(GoogleTranslationService::new(None));
+            let discover_service = Arc::new(FuzzyIndexAdapter::new(Vec::new()));
 
             // Manage State
             app.manage(AppState {
@@ -56,6 +58,7 @@ pub fn run() {
                 ai_service,
                 history_repository,
                 translation_service,
+                discover_service,
             });
 
             // Background scan + filesystem watcher must start *after* manage(),
@@ -108,6 +111,8 @@ pub fn run() {
             commands::history::record_action,
             commands::history::clear_history,
             commands::translation::translate,
+            commands::discover::search_discoverable,
+            commands::discover::browse_discoverable,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

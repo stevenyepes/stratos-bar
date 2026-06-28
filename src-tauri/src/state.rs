@@ -1,6 +1,7 @@
 use crate::ports::ai_port::AiService;
 use crate::ports::app_port::AppRepository;
 use crate::ports::config_port::ConfigService;
+use crate::ports::discover_port::DiscoverService;
 use crate::ports::history::HistoryRepository;
 use crate::ports::icon_port::IconResolver;
 use crate::ports::translation_port::TranslationService;
@@ -15,4 +16,5 @@ pub struct AppState {
     pub ai_service: Arc<dyn AiService>,
     pub history_repository: Arc<dyn HistoryRepository>,
     pub translation_service: Arc<dyn TranslationService>,
+    pub discover_service: Arc<dyn DiscoverService>,
 }
