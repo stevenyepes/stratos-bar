@@ -15,6 +15,14 @@ const BASE_WIDTH = 600
 const SEARCH_DEBOUNCE_MS = 90
 const FREQUENT_APP_LIMIT = 8
 
+export const KIND_FILTER_OPTIONS = [
+    { id: 'all', label: 'All', kinds: null },
+    { id: 'apps', label: 'Apps', kinds: ['app'] },
+    { id: 'scripts', label: 'Scripts', kinds: ['script'] },
+    { id: 'files', label: 'Files', kinds: ['recent_file'] },
+    { id: 'recent', label: 'Recent', kinds: ['shortcut'] },
+]
+
 const uiState = ref('idle') // 'idle', 'searching', 'chatting', 'executing'
 const query = ref('')
 const config = ref(null)
@@ -30,6 +38,8 @@ const searchInput = ref(null) // Template ref
 const scoredApps = shallowRef([])
 const topFrecencyApps = shallowRef([])
 const aliasesByAppId = ref({})
+const kindFilter = ref('all')
+const discoverResults = shallowRef([])
 
 let searchDebounce = null
 let lastSearchToken = 0
@@ -37,24 +47,71 @@ let queryWatcherInstalled = false
 function runSharedSearch(value) {
     const trimmed = (value || '').trim()
     if (!trimmed) {
+        discoverResults.value = []
         scoredApps.value = []
         return
     }
     const token = ++lastSearchToken
-    invoke('search_apps', { query: trimmed, limit: 25 })
+    const option = KIND_FILTER_OPTIONS.find((o) => o.id === kindFilter.value) || KIND_FILTER_OPTIONS[0]
+    const kinds = option && option.kinds ? option.kinds : null
+    const payload = { query: trimmed, limit: 25 }
+    if (kinds) payload.kinds = kinds
+    invoke('search_discoverable', payload)
         .then((result) => {
             if (token !== lastSearchToken) return
-            const merged = mergeAliasesIntoApps((result || []).map((r) => r.app))
-            scoredApps.value = (result || []).map((r, i) => ({
-                app: merged[i] || r.app,
-                score: r.score,
-                matched_field: r.matched_field,
-            }))
+            const list = Array.isArray(result) ? result : []
+            discoverResults.value = mergeAliasesIntoResults(list)
+            scoredApps.value = discoverResults.value
+                .filter((d) => d && d.kind === 'app')
+                .map((d) => ({ app: discoverableToApp(d), score: d.score }))
         })
         .catch((e) => {
-            console.error('search_apps failed', e)
+            console.error('search_discoverable failed', e)
+            discoverResults.value = []
             scoredApps.value = []
         })
+}
+
+function discoverableToApp(d) {
+    if (!d) return null
+    const exec = d.launch && typeof d.launch.exec === 'string' ? d.launch.exec : ''
+    const source = typeof d.source === 'string' && d.source.startsWith('app:')
+        ? d.source.slice(4)
+        : (d.source || '')
+    return {
+        id: d.id,
+        name: d.name,
+        exec,
+        icon: d.icon || null,
+        source,
+        categories: d.category ? [d.category] : [],
+        description: d.description || null,
+        aliases: Array.isArray(d.aliases) ? d.aliases : [],
+    }
+}
+
+function discoverableToScript(d) {
+    if (!d) return null
+    return {
+        id: d.id,
+        alias: d.name,
+        path: d.launch && typeof d.launch.path === 'string' ? d.launch.path : '',
+        args: d.launch && typeof d.launch.args === 'string' ? d.launch.args : null,
+    }
+}
+
+function mergeAliasesIntoResults(results) {
+    const aliases = aliasesByAppId.value || {}
+    if (!aliases || Object.keys(aliases).length === 0) return results
+    return results.map((r) => {
+        if (!r || r.kind !== 'app') return r
+        if (r.aliases && r.aliases.length) return r
+        const userAliases = aliases[r.id]
+        if (userAliases && userAliases.length) {
+            return { ...r, aliases: userAliases }
+        }
+        return r
+    })
 }
 
 function mergeAliasesIntoApps(list) {
@@ -76,6 +133,12 @@ function installSharedQueryWatcher() {
     watch(query, (newVal) => {
         if (searchDebounce) clearTimeout(searchDebounce)
         searchDebounce = setTimeout(() => runSharedSearch(newVal), SEARCH_DEBOUNCE_MS)
+    })
+    watch(kindFilter, () => {
+        if (searchDebounce) clearTimeout(searchDebounce)
+        if (query.value) {
+            searchDebounce = setTimeout(() => runSharedSearch(query.value), SEARCH_DEBOUNCE_MS)
+        }
     })
 }
 
@@ -338,7 +401,11 @@ export function useOmnibar() {
 
     const filteredApps = computed(() => {
         if (!query.value) return []
-        return scoredApps.value.map((s) => s.app).slice(0, 10)
+        return discoverResults.value
+            .filter((d) => d && d.kind === 'app')
+            .map((d) => discoverableToApp(d))
+            .filter(Boolean)
+            .slice(0, 10)
     })
 
     const topApps = computed(() => {
@@ -363,6 +430,12 @@ export function useOmnibar() {
         if (!query.value) return scripts.value
         const q = query.value.toLowerCase()
 
+        const fromDiscover = discoverResults.value
+            .filter((d) => d && d.kind === 'script')
+            .map((d) => discoverableToScript(d))
+            .filter(Boolean)
+        if (fromDiscover.length > 0) return fromDiscover
+
         let matches = scripts.value.filter(s => s.alias.toLowerCase().includes(q))
 
         const recentMap = new Map()
@@ -382,6 +455,14 @@ export function useOmnibar() {
         return matches
     })
 
+const filteredFiles = computed(() => {
+        if (!query.value) return []
+        return discoverResults.value
+            .filter((d) => d && (d.kind === 'recent_file' || d.kind === 'shortcut'))
+            .map((d) => d.launch && typeof d.launch.path === 'string' ? d.launch.path : '')
+            .filter((p) => !!p)
+    })
+
     // Watchers
     installSharedQueryWatcher()
 
@@ -393,7 +474,7 @@ export function useOmnibar() {
                 w.title.toLowerCase().includes(newVal.toLowerCase()) ||
                 w.class.toLowerCase().includes(newVal.toLowerCase())
             );
-            const hasApps = scoredApps.value.length > 0
+            const hasApps = discoverResults.value.some((d) => d && d.kind === 'app')
             const hasScripts = scripts.value.some(s => s.alias.toLowerCase().includes(newVal.toLowerCase()));
 
             if (hasWindows || hasApps || hasScripts) {
@@ -521,6 +602,18 @@ export function useOmnibar() {
         }
     }
 
+    function setKindFilter(kindId) {
+        const known = KIND_FILTER_OPTIONS.some((o) => o.id === kindId)
+        if (!known) return
+        if (kindFilter.value === kindId) return
+        kindFilter.value = kindId
+        selectedIndex.value = 0
+    }
+
+    function isKindFilterActive(kindId) {
+        return kindFilter.value === kindId
+    }
+
     return {
         // State
         uiState,
@@ -533,14 +626,17 @@ export function useOmnibar() {
         selectedIndex,
         showSettings,
         searchInput,
+        kindFilter,
 
         // Computed
         matchedTool,
         filteredWindows,
         filteredApps,
         filteredScripts,
+        filteredFiles,
         topApps,
         scoredApps,
+        discoverResults,
         aliasesByAppId,
 
         // Actions
@@ -557,7 +653,10 @@ export function useOmnibar() {
         removeAlias,
         listAliases,
         listCategories,
-        recentActions
+        setKindFilter,
+        isKindFilterActive,
+        recentActions,
+        KIND_FILTER_OPTIONS,
     }
 }
 
@@ -576,6 +675,13 @@ export function _resetOmnibarForTests() {
     scoredApps.value = []
     topFrecencyApps.value = []
     aliasesByAppId.value = {}
+    kindFilter.value = 'all'
+    discoverResults.value = []
+    if (searchDebounce) {
+        clearTimeout(searchDebounce)
+        searchDebounce = null
+    }
+    lastSearchToken++
 }
 
 export const _internals = {

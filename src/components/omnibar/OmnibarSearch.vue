@@ -17,7 +17,32 @@
         @keydown.enter.prevent="executeAction(selectedIndex)"
         @keydown.esc.stop="handleEsc"
         @keydown.ctrl.n.prevent="askAI"
+        @keydown.ctrl.0.prevent="handleKindShortcut('all')"
+        @keydown.ctrl.1.prevent="handleKindShortcut('apps')"
+        @keydown.ctrl.2.prevent="handleKindShortcut('scripts')"
+        @keydown.ctrl.3.prevent="handleKindShortcut('files')"
+        @keydown.ctrl.4.prevent="handleKindShortcut('recent')"
       />
+    </div>
+
+    <!-- Kind Filter Chips -->
+    <div
+      v-if="query && kindFilterOptions.length > 0"
+      class="kind-filter-row custom-scrollbar"
+      data-testid="kind-filter-row"
+    >
+      <button
+        v-for="option in kindFilterOptions"
+        :key="option.id"
+        type="button"
+        class="kind-chip interactive"
+        :class="{ 'kind-chip-active': isKindFilterActive(option.id) }"
+        :data-testid="`kind-chip-${option.id}`"
+        @click="setKindFilter(option.id)"
+      >
+        <span class="kind-chip-label">{{ option.label }}</span>
+        <span v-if="shortcutFor(option.id)" class="kind-chip-hint text-dimmer">[{{ shortcutFor(option.id) }}]</span>
+      </button>
     </div>
 
     <!-- Main Content Area -->
@@ -259,7 +284,9 @@ const {
   matchedTool, filteredWindows, filteredApps, filteredScripts, files,
   focusWindow, hideWindow,
   recentActions, recordAction, clearActions,
-  topApps, scoredApps
+  topApps, scoredApps,
+  kindFilter, KIND_FILTER_OPTIONS,
+  setKindFilter, isKindFilterActive,
 } = useOmnibar()
 
 const { askAI, executeAiTool, executeSkill } = useAI()
@@ -279,6 +306,24 @@ function handleEsc() {
   } else {
     emit('close')
   }
+}
+
+const KIND_SHORTCUTS = {
+  all: 'Ctrl+0',
+  apps: 'Ctrl+1',
+  scripts: 'Ctrl+2',
+  files: 'Ctrl+3',
+  recent: 'Ctrl+4',
+}
+
+const kindFilterOptions = KIND_FILTER_OPTIONS
+
+function shortcutFor(optionId) {
+  return KIND_SHORTCUTS[optionId] || ''
+}
+
+function handleKindShortcut(kindId) {
+  setKindFilter(kindId)
 }
 
 
@@ -458,7 +503,7 @@ function sourceLabel(source) {
 
 function appScoreFor(app) {
   if (!app || !scoredApps.value) return null
-  const match = scoredApps.value.find((s) => s.app && s.app.id === app.id)
+  const match = scoredApps.value.find((s) => s && s.app && s.app.id === app.id)
   return match ? match.score : null
 }
 
@@ -744,5 +789,58 @@ function getFileColor(path) {
 
 .top-app-item {
   border-left: 2px solid rgba(122, 162, 247, 0.2);
+}
+
+.kind-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-6) var(--space-2);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.kind-filter-row::-webkit-scrollbar {
+  display: none;
+}
+
+.kind-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px var(--space-3);
+  border-radius: 999px;
+  border: 1px solid var(--theme-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--theme-text-dim);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.kind-chip:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--theme-text);
+}
+
+.kind-chip-active {
+  background: rgba(122, 162, 247, 0.2);
+  border-color: rgba(122, 162, 247, 0.5);
+  color: var(--theme-primary);
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.2);
+}
+
+.kind-chip-label {
+  font-size: var(--font-size-xs);
+}
+
+.kind-chip-hint {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  opacity: 0.7;
 }
 </style>
