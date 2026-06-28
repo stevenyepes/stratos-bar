@@ -11,6 +11,33 @@ pub enum DiscoverableKind {
     Shortcut,
 }
 
+impl DiscoverableKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DiscoverableKind::App => "app",
+            DiscoverableKind::Script => "script",
+            DiscoverableKind::AiTool => "ai_tool",
+            DiscoverableKind::RecentFile => "recent_file",
+            DiscoverableKind::Shortcut => "shortcut",
+        }
+    }
+
+    pub fn parse(label: &str) -> Option<Self> {
+        match label.trim().to_ascii_lowercase().as_str() {
+            "app" | "apps" => Some(DiscoverableKind::App),
+            "script" | "scripts" => Some(DiscoverableKind::Script),
+            "ai" | "ai_tool" | "ai-tool" | "ai_tools" | "ai-tools" | "aitool" => {
+                Some(DiscoverableKind::AiTool)
+            }
+            "recent" | "recent_file" | "recent-file" | "recent_files" | "recent-files" => {
+                Some(DiscoverableKind::RecentFile)
+            }
+            "shortcut" | "shortcuts" => Some(DiscoverableKind::Shortcut),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DiscoverableLaunch {
@@ -66,6 +93,30 @@ impl DiscoverableItem {
             aliases,
         }
     }
+
+    pub fn snippet(&self, max_len: usize) -> String {
+        let raw = self
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&self.name);
+        if raw.chars().count() <= max_len {
+            return raw.to_string();
+        }
+        let mut out: String = raw.chars().take(max_len.saturating_sub(1)).collect();
+        out.push('\u{2026}');
+        out
+    }
+
+    pub fn source_label(&self) -> &str {
+        let s = self.source.as_str();
+        if let Some(idx) = s.find(':') {
+            &s[idx + 1..]
+        } else {
+            s
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -75,6 +126,12 @@ pub struct BrowseSections {
     pub ai_tools: Vec<crate::domain::config::AiTool>,
     pub recent_files: Vec<crate::domain::action::Action>,
     pub shortcuts: HashMap<String, String>,
+    #[serde(default)]
+    pub category_counts: HashMap<String, usize>,
+    #[serde(default)]
+    pub source_counts: HashMap<String, usize>,
+    #[serde(default)]
+    pub kind_counts: HashMap<String, usize>,
 }
 
 impl BrowseSections {
@@ -86,23 +143,79 @@ impl BrowseSections {
         shortcuts: HashMap<String, String>,
     ) -> Self {
         let mut apps_by_category: HashMap<String, Vec<DiscoverableItem>> = HashMap::new();
-        for app in apps {
+        let mut category_counts: HashMap<String, usize> = HashMap::new();
+        let mut source_counts: HashMap<String, usize> = HashMap::new();
+        let mut kind_counts: HashMap<String, usize> = HashMap::new();
+
+        for app in &apps {
             let bucket = app
                 .category
                 .clone()
                 .unwrap_or_else(|| "Other".to_string());
-            apps_by_category.entry(bucket).or_default().push(app);
+            *category_counts.entry(bucket.clone()).or_insert(0) += 1;
+            *source_counts.entry(app.source.clone()).or_insert(0) += 1;
+            *kind_counts
+                .entry(app.kind.as_str().to_string())
+                .or_insert(0) += 1;
+            apps_by_category.entry(bucket).or_default().push(app.clone());
         }
         for bucket in apps_by_category.values_mut() {
             bucket.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         }
+
+        if !scripts.is_empty() {
+            *source_counts
+                .entry("config:script".to_string())
+                .or_insert(0) += scripts.len();
+            *kind_counts
+                .entry(DiscoverableKind::Script.as_str().to_string())
+                .or_insert(0) += scripts.len();
+        }
+        if !ai_tools.is_empty() {
+            *source_counts
+                .entry("config:ai_tool".to_string())
+                .or_insert(0) += ai_tools.len();
+            *kind_counts
+                .entry(DiscoverableKind::AiTool.as_str().to_string())
+                .or_insert(0) += ai_tools.len();
+        }
+        if !recent_files.is_empty() {
+            *source_counts
+                .entry("history:file".to_string())
+                .or_insert(0) += recent_files.len();
+            *kind_counts
+                .entry(DiscoverableKind::RecentFile.as_str().to_string())
+                .or_insert(0) += recent_files.len();
+        }
+        if !shortcuts.is_empty() {
+            *source_counts
+                .entry("config:shortcut".to_string())
+                .or_insert(0) += shortcuts.len();
+            *kind_counts
+                .entry(DiscoverableKind::Shortcut.as_str().to_string())
+                .or_insert(0) += shortcuts.len();
+        }
+
         Self {
             apps_by_category,
             scripts,
             ai_tools,
             recent_files,
             shortcuts,
+            category_counts,
+            source_counts,
+            kind_counts,
         }
+    }
+
+    pub fn total_apps(&self) -> usize {
+        self.apps_by_category.values().map(|v| v.len()).sum()
+    }
+
+    pub fn sources(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.source_counts.keys().cloned().collect();
+        keys.sort();
+        keys
     }
 }
 
@@ -290,5 +403,208 @@ mod tests {
             category: None,
             aliases: Vec::new(),
         }
+    }
+
+    fn make_app_item(id: &str, name: &str, category: Option<&str>, source: &str) -> DiscoverableItem {
+        DiscoverableItem {
+            kind: DiscoverableKind::App,
+            id: id.to_string(),
+            name: name.to_string(),
+            description: Some(format!("{name} description")),
+            icon: None,
+            keywords: Vec::new(),
+            score: 1.0,
+            source: source.to_string(),
+            launch: DiscoverableLaunch::App {
+                exec: id.to_string(),
+            },
+            category: category.map(|s| s.to_string()),
+            aliases: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn kind_as_str_matches_serde_representation() {
+        assert_eq!(DiscoverableKind::App.as_str(), "app");
+        assert_eq!(DiscoverableKind::Script.as_str(), "script");
+        assert_eq!(DiscoverableKind::AiTool.as_str(), "ai_tool");
+        assert_eq!(DiscoverableKind::RecentFile.as_str(), "recent_file");
+        assert_eq!(DiscoverableKind::Shortcut.as_str(), "shortcut");
+    }
+
+    #[test]
+    fn kind_parse_accepts_plural_and_dash_variants() {
+        assert_eq!(DiscoverableKind::parse("app"), Some(DiscoverableKind::App));
+        assert_eq!(DiscoverableKind::parse("apps"), Some(DiscoverableKind::App));
+        assert_eq!(
+            DiscoverableKind::parse("ai-tool"),
+            Some(DiscoverableKind::AiTool)
+        );
+        assert_eq!(
+            DiscoverableKind::parse("recent_files"),
+            Some(DiscoverableKind::RecentFile)
+        );
+        assert_eq!(
+            DiscoverableKind::parse("recent-file"),
+            Some(DiscoverableKind::RecentFile)
+        );
+        assert_eq!(
+            DiscoverableKind::parse("shortcuts"),
+            Some(DiscoverableKind::Shortcut)
+        );
+        assert_eq!(DiscoverableKind::parse("bogus"), None);
+    }
+
+    #[test]
+    fn snippet_falls_back_to_name_and_truncates_long_text() {
+        let mut item = make_blank_item(DiscoverableKind::App);
+        item.name = "Chrome".to_string();
+        item.description = None;
+        assert_eq!(item.snippet(80), "Chrome");
+
+        item.description = Some("short".to_string());
+        assert_eq!(item.snippet(80), "short");
+
+        item.description = Some("a".repeat(40));
+        let s = item.snippet(10);
+        assert!(s.chars().count() <= 10);
+        assert!(s.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn source_label_strips_kind_prefix() {
+        let mut item = make_blank_item(DiscoverableKind::App);
+        item.source = "app:desktop".to_string();
+        assert_eq!(item.source_label(), "desktop");
+
+        item.source = "config:script".to_string();
+        assert_eq!(item.source_label(), "script");
+
+        item.source = "history:file".to_string();
+        assert_eq!(item.source_label(), "file");
+    }
+
+    #[test]
+    fn browse_sections_records_category_source_and_kind_counts() {
+        use crate::domain::action::Action;
+        use crate::domain::config::{AiTool, ScriptConfig};
+        let apps = vec![
+            make_app_item("chrome", "Chrome", Some("Internet"), "app:desktop"),
+            make_app_item("firefox", "Firefox", Some("Internet"), "app:flatpak"),
+            make_app_item("code", "Code", Some("Development"), "app:desktop"),
+            make_app_item("misc", "Misc", None, "app:desktop"),
+        ];
+        let scripts = vec![ScriptConfig {
+            id: "deploy".to_string(),
+            alias: "deploy".to_string(),
+            path: "/srv/scripts/deploy.sh".to_string(),
+            args: None,
+        }];
+        let ai_tools = vec![AiTool {
+            id: "rephrase".to_string(),
+            name: "Rephrase".to_string(),
+            description: String::new(),
+            prompt_template: String::new(),
+            keywords: Vec::new(),
+            icon: String::new(),
+        }];
+        let recent_files = vec![Action {
+            id: "f".to_string(),
+            kind: "file".to_string(),
+            content: "/tmp/note.md".to_string(),
+            name: "note.md".to_string(),
+            icon: None,
+            last_accessed: 0,
+            frequency: 0,
+        }];
+        let mut shortcuts = HashMap::new();
+        shortcuts.insert("browser".to_string(), "chrome".to_string());
+
+        let sections = BrowseSections::from_snapshot(apps, scripts, ai_tools, recent_files, shortcuts);
+
+        assert_eq!(sections.category_counts.get("Internet").copied(), Some(2));
+        assert_eq!(sections.category_counts.get("Development").copied(), Some(1));
+        assert_eq!(sections.category_counts.get("Other").copied(), Some(1));
+        assert_eq!(sections.category_counts.values().sum::<usize>(), 4);
+
+        assert_eq!(sections.source_counts.get("app:desktop").copied(), Some(3));
+        assert_eq!(sections.source_counts.get("app:flatpak").copied(), Some(1));
+        assert_eq!(sections.source_counts.get("config:script").copied(), Some(1));
+        assert_eq!(sections.source_counts.get("config:ai_tool").copied(), Some(1));
+        assert_eq!(sections.source_counts.get("history:file").copied(), Some(1));
+        assert_eq!(sections.source_counts.get("config:shortcut").copied(), Some(1));
+
+        assert_eq!(sections.kind_counts.get("app").copied(), Some(4));
+        assert_eq!(sections.kind_counts.get("script").copied(), Some(1));
+        assert_eq!(sections.kind_counts.get("ai_tool").copied(), Some(1));
+        assert_eq!(sections.kind_counts.get("recent_file").copied(), Some(1));
+        assert_eq!(sections.kind_counts.get("shortcut").copied(), Some(1));
+
+        assert_eq!(sections.total_apps(), 4);
+        let mut sources = sections.sources();
+        sources.sort();
+        assert_eq!(
+            sources,
+            vec![
+                "app:desktop".to_string(),
+                "app:flatpak".to_string(),
+                "config:ai_tool".to_string(),
+                "config:script".to_string(),
+                "config:shortcut".to_string(),
+                "history:file".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn browse_sections_counts_zero_when_empty() {
+        let sections = BrowseSections::from_snapshot(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            HashMap::new(),
+        );
+        assert!(sections.category_counts.is_empty());
+        assert!(sections.source_counts.is_empty());
+        assert!(sections.kind_counts.is_empty());
+        assert_eq!(sections.total_apps(), 0);
+        assert!(sections.sources().is_empty());
+    }
+
+    #[test]
+    fn browse_sections_serializes_new_count_fields() {
+        let sections = BrowseSections {
+            apps_by_category: HashMap::new(),
+            scripts: Vec::new(),
+            ai_tools: Vec::new(),
+            recent_files: Vec::new(),
+            shortcuts: HashMap::new(),
+            category_counts: HashMap::from([("Internet".to_string(), 2)]),
+            source_counts: HashMap::from([("app:desktop".to_string(), 2)]),
+            kind_counts: HashMap::from([("app".to_string(), 2)]),
+        };
+        let json = serde_json::to_string(&sections).unwrap();
+        assert!(json.contains("\"category_counts\""));
+        assert!(json.contains("\"Internet\":2"));
+        assert!(json.contains("\"source_counts\""));
+        assert!(json.contains("\"app:desktop\":2"));
+        assert!(json.contains("\"kind_counts\""));
+        assert!(json.contains("\"app\":2"));
+    }
+
+    #[test]
+    fn browse_sections_round_trips_legacy_payload_without_count_fields() {
+        let legacy_json = r#"{
+            "apps_by_category": {},
+            "scripts": [],
+            "ai_tools": [],
+            "recent_files": [],
+            "shortcuts": {}
+        }"#;
+        let parsed: BrowseSections = serde_json::from_str(legacy_json).unwrap();
+        assert!(parsed.category_counts.is_empty());
+        assert!(parsed.source_counts.is_empty());
+        assert!(parsed.kind_counts.is_empty());
     }
 }

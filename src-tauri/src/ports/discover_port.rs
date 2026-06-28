@@ -1,4 +1,4 @@
-use crate::domain::discover::DiscoverableItem;
+use crate::domain::discover::{DiscoverableItem, DiscoverableKind};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -10,7 +10,12 @@ pub trait DiscoverService: Send + Sync {
 
     async fn invalidate(&self);
 
-    async fn search(&self, query: &str, limit: usize) -> Vec<DiscoverableItem>;
+    async fn search(
+        &self,
+        query: &str,
+        kinds: Option<Vec<DiscoverableKind>>,
+        limit: usize,
+    ) -> Vec<DiscoverableItem>;
 }
 
 #[derive(Default, Clone)]
@@ -40,8 +45,8 @@ mod tests {
         let mut mock = MockDiscoverService::new();
         mock.expect_search()
             .times(1)
-            .withf(|q, l| q == "hello" && *l == 5)
-            .returning(|_, _| {
+            .withf(|q, kinds, l| q == "hello" && kinds.is_none() && *l == 5)
+            .returning(|_, _, _| {
                 vec![DiscoverableItem {
                     kind: DiscoverableKind::App,
                     id: "x".to_string(),
@@ -59,9 +64,27 @@ mod tests {
                 }]
             });
 
-        let items = mock.search("hello", 5).await;
+        let items = mock.search("hello", None, 5).await;
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, DiscoverableKind::App);
+    }
+
+    #[tokio::test]
+    async fn automock_records_search_calls_with_kind_filter() {
+        let mut mock = MockDiscoverService::new();
+        mock.expect_search()
+            .times(1)
+            .withf(|q, kinds, l| {
+                q == "x"
+                    && kinds.as_ref().map(|v| v.as_slice())
+                        == Some(&[DiscoverableKind::App][..])
+                    && *l == 3
+            })
+            .returning(|_, _, _| Vec::new());
+        let items = mock
+            .search("x", Some(vec![DiscoverableKind::App]), 3)
+            .await;
+        assert!(items.is_empty());
     }
 
     #[test]

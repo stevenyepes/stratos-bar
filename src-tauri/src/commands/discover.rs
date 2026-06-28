@@ -1,6 +1,6 @@
 use crate::adapters::fuzzy_index::{install_shared, shared_index, FuzzyIndexAdapter};
 use crate::domain::action::Action;
-use crate::domain::discover::{BrowseSections, DiscoverableItem};
+use crate::domain::discover::{BrowseSections, DiscoverableItem, DiscoverableKind};
 use crate::ports::discover_port::DiscoverService;
 use crate::state::AppState;
 use std::sync::Arc;
@@ -20,12 +20,26 @@ pub async fn warm_discover_index(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+pub fn parse_kind_filter(kinds: Option<Vec<String>>) -> Option<Vec<DiscoverableKind>> {
+    let labels = kinds?;
+    let parsed: Vec<DiscoverableKind> = labels
+        .into_iter()
+        .filter_map(|label| DiscoverableKind::parse(&label))
+        .collect();
+    if parsed.is_empty() {
+        None
+    } else {
+        Some(parsed)
+    }
+}
+
 pub async fn search_discoverable_async(
     adapter: &FuzzyIndexAdapter,
     query: &str,
+    kinds: Option<Vec<DiscoverableKind>>,
     limit: usize,
 ) -> Vec<DiscoverableItem> {
-    <FuzzyIndexAdapter as DiscoverService>::search(adapter, query, limit).await
+    <FuzzyIndexAdapter as DiscoverService>::search(adapter, query, kinds, limit).await
 }
 
 #[tauri::command]
@@ -34,6 +48,7 @@ pub async fn search_discoverable(
     state: State<'_, AppState>,
     query: String,
     limit: usize,
+    kinds: Option<Vec<String>>,
 ) -> Result<Vec<DiscoverableItem>, String> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
@@ -53,7 +68,8 @@ pub async fn search_discoverable(
         }
     };
 
-    let results = adapter.search(&query, limit).await;
+    let parsed_kinds = parse_kind_filter(kinds);
+    let results = adapter.search(&query, parsed_kinds, limit).await;
     let _ = app_handle.emit("discoverable-updated", &results);
     Ok(results)
 }
@@ -303,7 +319,7 @@ mod tests {
     async fn search_discoverable_async_returns_unified_list() {
         let apps = vec![make_app("chrome", "Chrome")];
         let adapter = make_adapter(apps, make_config());
-        let results = search_discoverable_async(&adapter, "chr", 20).await;
+        let results = search_discoverable_async(&adapter, "chr", None, 20).await;
         assert!(!results.is_empty());
         assert!(results
             .iter()
@@ -316,10 +332,49 @@ mod tests {
     #[tokio::test]
     async fn search_discoverable_async_excludes_empty_query() {
         let adapter = make_adapter(vec![], make_config());
-        let r = search_discoverable_async(&adapter, "", 10).await;
+        let r = search_discoverable_async(&adapter, "", None, 10).await;
         assert!(r.is_empty());
-        let r = search_discoverable_async(&adapter, "   ", 10).await;
+        let r = search_discoverable_async(&adapter, "   ", None, 10).await;
         assert!(r.is_empty());
+    }
+
+    #[tokio::test]
+    async fn search_discoverable_async_respects_kind_filter() {
+        let apps = vec![make_app("chrome", "Chrome"), make_app("code", "Code")];
+        let adapter = make_adapter(apps, make_config());
+        let only_apps = vec![DiscoverableKind::App];
+        let results = search_discoverable_async(&adapter, "c", Some(only_apps), 20).await;
+        assert!(!results.is_empty());
+        for item in &results {
+            assert!(matches!(item.kind, DiscoverableKind::App));
+        }
+        let only_shortcuts = vec![DiscoverableKind::Shortcut];
+        let results = search_discoverable_async(&adapter, "chrome-launcher", Some(only_shortcuts), 20).await;
+        assert!(results.iter().any(|r| matches!(r.kind, DiscoverableKind::Shortcut)));
+        assert!(results.iter().all(|r| !matches!(r.kind, DiscoverableKind::App)));
+    }
+
+    #[test]
+    fn parse_kind_filter_normalizes_labels_and_drops_unknown() {
+        let parsed = parse_kind_filter(Some(vec![
+            "apps".to_string(),
+            "ai-tool".to_string(),
+            "recent_files".to_string(),
+            "shortcut".to_string(),
+            "bogus".to_string(),
+        ]));
+        assert_eq!(
+            parsed,
+            Some(vec![
+                DiscoverableKind::App,
+                DiscoverableKind::AiTool,
+                DiscoverableKind::RecentFile,
+                DiscoverableKind::Shortcut,
+            ])
+        );
+        assert_eq!(parse_kind_filter(None), None);
+        assert_eq!(parse_kind_filter(Some(Vec::new())), None);
+        assert_eq!(parse_kind_filter(Some(vec!["unknown".to_string()])), None);
     }
 
     #[test]
@@ -371,7 +426,7 @@ mod tests {
             },
         ];
         let adapter = make_adapter_with_history(apps, make_config(), actions);
-        let results = adapter.search("o", 10).await;
+        let results = adapter.search("o", None, 10).await;
         let hot = results.iter().find(|r| r.id == "hot").unwrap();
         let cold = results.iter().find(|r| r.id == "cold").unwrap();
         assert!(
@@ -465,5 +520,46 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.recent_files.len(), 20);
+    }
+
+    #[tokio::test]
+    async fn browse_discoverable_logic_enriches_with_counts() {
+        let apps = vec![
+            make_categorized_app("chrome", "Chrome", "Internet"),
+            make_categorized_app("firefox", "Firefox", "Internet"),
+            make_categorized_app("code", "Code", "Development"),
+        ];
+        let adapter = make_adapter(apps, make_config());
+        adapter.warm().await.unwrap();
+
+        let mut shortcuts = HashMap::new();
+        shortcuts.insert("browser".to_string(), "google-chrome".to_string());
+        let recent_files = vec![Action {
+            id: "f1".to_string(),
+            kind: "file".to_string(),
+            content: "/tmp/note.md".to_string(),
+            name: "note.md".to_string(),
+            icon: None,
+            last_accessed: 1,
+            frequency: 1,
+        }];
+        let result = browse_discoverable_logic(
+            &adapter,
+            make_config().scripts,
+            make_config().ai_tools,
+            recent_files,
+            shortcuts,
+        )
+        .unwrap();
+        assert_eq!(result.category_counts.get("Internet").copied(), Some(2));
+        assert_eq!(result.category_counts.get("Development").copied(), Some(1));
+        assert_eq!(result.source_counts.get("app:desktop").copied(), Some(3));
+        assert_eq!(result.kind_counts.get("app").copied(), Some(3));
+        assert_eq!(result.kind_counts.get("script").copied(), Some(1));
+        assert_eq!(result.kind_counts.get("ai_tool").copied(), Some(1));
+        assert_eq!(result.kind_counts.get("recent_file").copied(), Some(1));
+        assert_eq!(result.kind_counts.get("shortcut").copied(), Some(1));
+        assert_eq!(result.total_apps(), 3);
+        assert!(!result.sources().is_empty());
     }
 }

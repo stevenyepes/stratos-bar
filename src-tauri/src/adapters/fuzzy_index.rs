@@ -403,7 +403,13 @@ impl FuzzyIndexAdapter {
         self.snapshot.read().ok().and_then(|g| g.clone())
     }
 
-    pub fn rank(&self, snapshot: &IndexSnapshot, query: &str, limit: usize) -> Vec<DiscoverableItem> {
+    pub fn rank(
+        &self,
+        snapshot: &IndexSnapshot,
+        query: &str,
+        kind_filter: Option<&[DiscoverableKind]>,
+        limit: usize,
+    ) -> Vec<DiscoverableItem> {
         if query.trim().is_empty() {
             return Vec::new();
         }
@@ -417,138 +423,152 @@ impl FuzzyIndexAdapter {
 
         let category_freq = compute_category_frequency(&snapshot.apps);
         let user_aliases = self.alias_overrides.snapshot();
+        let includes = |kind: DiscoverableKind| match kind_filter {
+            None => true,
+            Some(set) => set.contains(&kind),
+        };
 
-        for app in &snapshot.apps {
-            let user_aliases_for_app = user_aliases.get(&app.id);
-            if let Some(entry) = score_app(app, query, user_aliases_for_app) {
-                let base = entry.raw();
-                let recent = recent_by_id.get(&app.id).copied();
-                let boost = frequency_boost(recent, now_ms);
-                let category_boost = category_frequency_boost(
-                    app.categories.first().cloned(),
-                    &category_freq,
-                );
-                let category = app.categories.first().cloned();
-                let aliases = merged_aliases(app, user_aliases_for_app);
-                scored.push(DiscoverableItem {
-                    kind: DiscoverableKind::App,
-                    id: app.id.clone(),
-                    name: app.name.clone(),
-                    description: app.description.clone(),
-                    icon: app.icon.clone(),
-                    keywords: app.keywords.clone(),
-                    score: (base + boost + category_boost) * WEIGHT_APP,
-                    source: format!("app:{:?}", app.source).to_lowercase(),
-                    launch: DiscoverableLaunch::App {
-                        exec: app.exec.clone(),
-                    },
-                    category,
-                    aliases,
-                });
+        if includes(DiscoverableKind::App) {
+            for app in &snapshot.apps {
+                let user_aliases_for_app = user_aliases.get(&app.id);
+                if let Some(entry) = score_app(app, query, user_aliases_for_app) {
+                    let base = entry.raw();
+                    let recent = recent_by_id.get(&app.id).copied();
+                    let boost = frequency_boost(recent, now_ms);
+                    let category_boost = category_frequency_boost(
+                        app.categories.first().cloned(),
+                        &category_freq,
+                    );
+                    let category = app.categories.first().cloned();
+                    let aliases = merged_aliases(app, user_aliases_for_app);
+                    scored.push(DiscoverableItem {
+                        kind: DiscoverableKind::App,
+                        id: app.id.clone(),
+                        name: app.name.clone(),
+                        description: app.description.clone(),
+                        icon: app.icon.clone(),
+                        keywords: app.keywords.clone(),
+                        score: (base + boost + category_boost) * WEIGHT_APP,
+                        source: format!("app:{:?}", app.source).to_lowercase(),
+                        launch: DiscoverableLaunch::App {
+                            exec: app.exec.clone(),
+                        },
+                        category,
+                        aliases,
+                    });
+                }
             }
         }
 
-        for script in &snapshot.scripts {
-            if let Some(entry) = score_script(script, query) {
-                let base = entry.raw();
-                let recent = recent_by_id.get(&script.id).copied();
-                let boost = frequency_boost(recent, now_ms);
-                scored.push(DiscoverableItem {
-                    kind: DiscoverableKind::Script,
-                    id: script.id.clone(),
-                    name: if script.alias.is_empty() {
-                        script.id.clone()
-                    } else {
-                        script.alias.clone()
-                    },
-                    description: Some(script.path.clone()),
-                    icon: None,
-                    keywords: Vec::new(),
-                    score: (base + boost) * WEIGHT_SCRIPT,
-                    source: "config:script".to_string(),
-                    launch: DiscoverableLaunch::Script {
-                        path: script.path.clone(),
-                        args: script.args.clone(),
-                    },
-                    category: None,
-                    aliases: Vec::new(),
-                });
+        if includes(DiscoverableKind::Script) {
+            for script in &snapshot.scripts {
+                if let Some(entry) = score_script(script, query) {
+                    let base = entry.raw();
+                    let recent = recent_by_id.get(&script.id).copied();
+                    let boost = frequency_boost(recent, now_ms);
+                    scored.push(DiscoverableItem {
+                        kind: DiscoverableKind::Script,
+                        id: script.id.clone(),
+                        name: if script.alias.is_empty() {
+                            script.id.clone()
+                        } else {
+                            script.alias.clone()
+                        },
+                        description: Some(script.path.clone()),
+                        icon: None,
+                        keywords: Vec::new(),
+                        score: (base + boost) * WEIGHT_SCRIPT,
+                        source: "config:script".to_string(),
+                        launch: DiscoverableLaunch::Script {
+                            path: script.path.clone(),
+                            args: script.args.clone(),
+                        },
+                        category: None,
+                        aliases: Vec::new(),
+                    });
+                }
             }
         }
 
-        for tool in &snapshot.ai_tools {
-            if let Some(entry) = score_ai_tool(tool, query) {
-                let base = entry.raw();
-                scored.push(DiscoverableItem {
-                    kind: DiscoverableKind::AiTool,
-                    id: tool.id.clone(),
-                    name: tool.name.clone(),
-                    description: if tool.description.is_empty() {
-                        None
-                    } else {
-                        Some(tool.description.clone())
-                    },
-                    icon: if tool.icon.is_empty() {
-                        None
-                    } else {
-                        Some(tool.icon.clone())
-                    },
-                    keywords: tool.keywords.clone(),
-                    score: base * WEIGHT_AI_TOOL,
-                    source: "config:ai_tool".to_string(),
-                    launch: DiscoverableLaunch::AiTool {
-                        tool_id: tool.id.clone(),
-                    },
-                    category: None,
-                    aliases: Vec::new(),
-                });
+        if includes(DiscoverableKind::AiTool) {
+            for tool in &snapshot.ai_tools {
+                if let Some(entry) = score_ai_tool(tool, query) {
+                    let base = entry.raw();
+                    scored.push(DiscoverableItem {
+                        kind: DiscoverableKind::AiTool,
+                        id: tool.id.clone(),
+                        name: tool.name.clone(),
+                        description: if tool.description.is_empty() {
+                            None
+                        } else {
+                            Some(tool.description.clone())
+                        },
+                        icon: if tool.icon.is_empty() {
+                            None
+                        } else {
+                            Some(tool.icon.clone())
+                        },
+                        keywords: tool.keywords.clone(),
+                        score: base * WEIGHT_AI_TOOL,
+                        source: "config:ai_tool".to_string(),
+                        launch: DiscoverableLaunch::AiTool {
+                            tool_id: tool.id.clone(),
+                        },
+                        category: None,
+                        aliases: Vec::new(),
+                    });
+                }
             }
         }
 
-        for (trigger, target) in &snapshot.shortcuts {
-            if let Some(entry) = score_shortcut(trigger, query) {
-                let base = entry.raw();
-                scored.push(DiscoverableItem {
-                    kind: DiscoverableKind::Shortcut,
-                    id: format!("shortcut:{trigger}"),
-                    name: trigger.clone(),
-                    description: Some(format!("→ {target}")),
-                    icon: None,
-                    keywords: vec![target.clone()],
-                    score: base * WEIGHT_SHORTCUT,
-                    source: "config:shortcut".to_string(),
-                    launch: DiscoverableLaunch::Shortcut {
-                        target: target.clone(),
-                    },
-                    category: None,
-                    aliases: Vec::new(),
-                });
+        if includes(DiscoverableKind::Shortcut) {
+            for (trigger, target) in &snapshot.shortcuts {
+                if let Some(entry) = score_shortcut(trigger, query) {
+                    let base = entry.raw();
+                    scored.push(DiscoverableItem {
+                        kind: DiscoverableKind::Shortcut,
+                        id: format!("shortcut:{trigger}"),
+                        name: trigger.clone(),
+                        description: Some(format!("→ {target}")),
+                        icon: None,
+                        keywords: vec![target.clone()],
+                        score: base * WEIGHT_SHORTCUT,
+                        source: "config:shortcut".to_string(),
+                        launch: DiscoverableLaunch::Shortcut {
+                            target: target.clone(),
+                        },
+                        category: None,
+                        aliases: Vec::new(),
+                    });
+                }
             }
         }
 
-        for action in &snapshot.recent_actions {
-            if action.kind != "file" {
-                continue;
-            }
-            if let Some(entry) = score_recent(query, action) {
-                let base = entry.raw();
-                let decay = time_decay(action.last_accessed, now_ms);
-                let boost = (action.frequency as f32).min(FREQUENCY_BOOST_MAX) * decay;
-                scored.push(DiscoverableItem {
-                    kind: DiscoverableKind::RecentFile,
-                    id: action.id.clone(),
-                    name: action.name.clone(),
-                    description: Some(action.content.clone()),
-                    icon: action.icon.clone(),
-                    keywords: Vec::new(),
-                    score: (base + boost) * WEIGHT_RECENT_FILE,
-                    source: "history:file".to_string(),
-                    launch: DiscoverableLaunch::RecentFile {
-                        path: action.content.clone(),
-                    },
-                    category: None,
-                    aliases: Vec::new(),
-                });
+        if includes(DiscoverableKind::RecentFile) {
+            for action in &snapshot.recent_actions {
+                if action.kind != "file" {
+                    continue;
+                }
+                if let Some(entry) = score_recent(query, action) {
+                    let base = entry.raw();
+                    let decay = time_decay(action.last_accessed, now_ms);
+                    let boost = (action.frequency as f32).min(FREQUENCY_BOOST_MAX) * decay;
+                    scored.push(DiscoverableItem {
+                        kind: DiscoverableKind::RecentFile,
+                        id: action.id.clone(),
+                        name: action.name.clone(),
+                        description: Some(action.content.clone()),
+                        icon: action.icon.clone(),
+                        keywords: Vec::new(),
+                        score: (base + boost) * WEIGHT_RECENT_FILE,
+                        source: "history:file".to_string(),
+                        launch: DiscoverableLaunch::RecentFile {
+                            path: action.content.clone(),
+                        },
+                        category: None,
+                        aliases: Vec::new(),
+                    });
+                }
             }
         }
 
@@ -574,12 +594,17 @@ impl DiscoverService for FuzzyIndexAdapter {
         self.invalidate();
     }
 
-    async fn search(&self, query: &str, limit: usize) -> Vec<DiscoverableItem> {
+    async fn search(
+        &self,
+        query: &str,
+        kinds: Option<Vec<DiscoverableKind>>,
+        limit: usize,
+    ) -> Vec<DiscoverableItem> {
         let snap = match self.ensure_warm().await {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };
-        self.rank(&snap, query, limit)
+        self.rank(&snap, query, kinds.as_deref(), limit)
     }
 }
 
@@ -858,7 +883,7 @@ mod tests {
         ];
         let adapter = build_adapter(apps, make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "chr", 10);
+        let ranked = adapter.rank(&snap, "chr", None, 10);
         assert_eq!(ranked.len(), 2);
         assert_eq!(ranked[0].name, "Chrome");
         assert_eq!(ranked[1].name, "Chromium");
@@ -874,7 +899,7 @@ mod tests {
         ];
         let adapter = build_adapter(apps, make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "chr", 10);
+        let ranked = adapter.rank(&snap, "chr", None, 10);
         assert_eq!(ranked.len(), 1);
         assert_eq!(ranked[0].name, "Chrome");
     }
@@ -884,7 +909,7 @@ mod tests {
         let apps: Vec<AppEntry> = (0..50).map(|i| make_app(&format!("app{i}"), &format!("App{i}"))).collect();
         let adapter = build_adapter(apps, make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "app", 5);
+        let ranked = adapter.rank(&snap, "app", None, 5);
         assert_eq!(ranked.len(), 5);
     }
 
@@ -893,9 +918,9 @@ mod tests {
         let apps = vec![make_app("chrome", "Chrome")];
         let adapter = build_adapter(apps, make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "", 10);
+        let ranked = adapter.rank(&snap, "", None, 10);
         assert!(ranked.is_empty());
-        let ranked = adapter.rank(&snap, "   ", 10);
+        let ranked = adapter.rank(&snap, "   ", None, 10);
         assert!(ranked.is_empty());
     }
 
@@ -903,7 +928,7 @@ mod tests {
     async fn rank_finds_shortcut_by_trigger() {
         let adapter = build_adapter(vec![], make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "browser", 10);
+        let ranked = adapter.rank(&snap, "browser", None, 10);
         assert!(ranked.iter().any(|r| r.name == "browser" && matches!(r.kind, DiscoverableKind::Shortcut)));
     }
 
@@ -911,7 +936,7 @@ mod tests {
     async fn rank_finds_script_by_alias() {
         let adapter = build_adapter(vec![], make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "deploy", 10);
+        let ranked = adapter.rank(&snap, "deploy", None, 10);
         assert!(ranked.iter().any(|r| matches!(r.kind, DiscoverableKind::Script)));
     }
 
@@ -919,7 +944,7 @@ mod tests {
     async fn rank_finds_ai_tool_by_keyword() {
         let adapter = build_adapter(vec![], make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "rewrite", 10);
+        let ranked = adapter.rank(&snap, "rewrite", None, 10);
         assert!(ranked.iter().any(|r| matches!(r.kind, DiscoverableKind::AiTool)));
     }
 
@@ -930,7 +955,7 @@ mod tests {
         let actions = vec![make_action("notes.txt", "file", 5, now)];
         let adapter = build_adapter(apps, make_config(), actions);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "notes", 10);
+        let ranked = adapter.rank(&snap, "notes", None, 10);
         assert!(ranked
             .iter()
             .any(|r| matches!(r.kind, DiscoverableKind::RecentFile)));
@@ -950,7 +975,7 @@ mod tests {
         ];
         let adapter = build_adapter(apps, make_config(), actions);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "o", 10);
+        let ranked = adapter.rank(&snap, "o", None, 10);
         let hot_pos = ranked.iter().position(|r| r.id == "hot");
         let cold_pos = ranked.iter().position(|r| r.id == "cold");
         assert!(hot_pos.is_some() && cold_pos.is_some());
@@ -1020,7 +1045,7 @@ mod tests {
         let adapter = build_adapter(apps, make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
         let start = std::time::Instant::now();
-        let ranked = adapter.rank(&snap, "1234", 50);
+        let ranked = adapter.rank(&snap, "1234", None, 50);
         let elapsed = start.elapsed();
         assert!(elapsed.as_millis() < 200, "ranking took too long: {elapsed:?}");
         assert!(!ranked.is_empty());
@@ -1056,7 +1081,7 @@ mod tests {
         let adapter = build_adapter(apps, config, vec![]);
         adapter.warm().await.unwrap();
         let svc: Arc<dyn DiscoverService> = adapter;
-        let results = svc.search("chr", 10).await;
+        let results = svc.search("chr", None, 10).await;
         assert!(!results.is_empty());
         assert!(results.iter().any(|r| matches!(r.kind, DiscoverableKind::App)));
     }
@@ -1122,7 +1147,7 @@ mod tests {
         ];
         let adapter = build_adapter(apps, make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "chr", 10);
+        let ranked = adapter.rank(&snap, "chr", None, 10);
         let chrome = ranked.iter().find(|r| r.id == "chrome").unwrap();
         assert_eq!(chrome.category.as_deref(), Some("Internet"));
         assert!(chrome.aliases.is_empty());
@@ -1142,7 +1167,7 @@ mod tests {
             vec!["browser".to_string()],
         )]));
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "browser", 10);
+        let ranked = adapter.rank(&snap, "browser", None, 10);
         assert_eq!(ranked.len(), 1);
         assert_eq!(ranked[0].id, "google-chrome");
         assert_eq!(ranked[0].aliases, vec!["browser".to_string()]);
@@ -1163,7 +1188,7 @@ mod tests {
         }
         let adapter = build_adapter(apps, make_config(), vec![]);
         let snap = adapter.build_snapshot().await.unwrap();
-        let ranked = adapter.rank(&snap, "alph", 5);
+        let ranked = adapter.rank(&snap, "alph", None, 5);
         assert!(!ranked.is_empty());
         let alpha = ranked.iter().find(|r| r.id == "a").unwrap();
         assert!(alpha.score > 0.0);
@@ -1222,5 +1247,79 @@ mod tests {
         let code = all.iter().find(|a| a.id == "code").unwrap();
         assert_eq!(code.category.as_deref(), Some("Development"));
         assert!(code.aliases.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rank_kind_filter_apps_only_excludes_other_kinds() {
+        let now = current_time_ms();
+        let apps = vec![make_app("chrome", "Chrome"), make_app("code", "Code")];
+        let actions = vec![make_action("notes.md", "file", 3, now)];
+        let adapter = build_adapter(apps, make_config(), actions);
+        let snap = adapter.build_snapshot().await.unwrap();
+        let filter = [DiscoverableKind::App];
+        let ranked = adapter.rank(&snap, "c", Some(&filter), 20);
+        assert!(!ranked.is_empty());
+        for item in &ranked {
+            assert!(matches!(item.kind, DiscoverableKind::App));
+        }
+        assert!(ranked.iter().any(|r| r.id == "chrome"));
+        assert!(ranked.iter().any(|r| r.id == "code"));
+        assert!(ranked
+            .iter()
+            .all(|r| !matches!(r.kind, DiscoverableKind::Shortcut)));
+    }
+
+    #[tokio::test]
+    async fn rank_kind_filter_shortcuts_only_returns_shortcuts() {
+        let adapter = build_adapter(vec![make_app("chrome", "Chrome")], make_config(), vec![]);
+        let snap = adapter.build_snapshot().await.unwrap();
+        let filter = [DiscoverableKind::Shortcut];
+        let ranked = adapter.rank(&snap, "browser", Some(&filter), 20);
+        assert!(!ranked.is_empty());
+        for item in &ranked {
+            assert!(matches!(item.kind, DiscoverableKind::Shortcut));
+        }
+        assert!(ranked.iter().any(|r| r.name == "browser"));
+    }
+
+    #[tokio::test]
+    async fn rank_kind_filter_multiple_kinds_returns_union() {
+        let now = current_time_ms();
+        let apps = vec![make_app("chrome", "Chrome")];
+        let actions = vec![make_action("chrome-notes.md", "file", 5, now)];
+        let adapter = build_adapter(apps, make_config(), actions);
+        let snap = adapter.build_snapshot().await.unwrap();
+        let filter = [DiscoverableKind::App, DiscoverableKind::RecentFile];
+        let ranked = adapter.rank(&snap, "chrome", Some(&filter), 20);
+        let kinds: std::collections::HashSet<_> = ranked.iter().map(|r| r.kind).collect();
+        assert!(kinds.contains(&DiscoverableKind::App));
+        assert!(kinds.contains(&DiscoverableKind::RecentFile));
+        assert!(!kinds.contains(&DiscoverableKind::Shortcut));
+        assert!(!kinds.contains(&DiscoverableKind::Script));
+    }
+
+    #[tokio::test]
+    async fn rank_kind_filter_empty_set_returns_nothing() {
+        let apps = vec![make_app("chrome", "Chrome")];
+        let adapter = build_adapter(apps, make_config(), vec![]);
+        let snap = adapter.build_snapshot().await.unwrap();
+        let filter: [DiscoverableKind; 0] = [];
+        let ranked = adapter.rank(&snap, "chrome", Some(&filter), 20);
+        assert!(ranked.is_empty());
+    }
+
+    #[tokio::test]
+    async fn search_via_port_with_kind_filter_respects_filter() {
+        let apps = vec![make_app("chrome", "Chrome"), make_app("code", "Code")];
+        let adapter = build_adapter(apps, make_config(), vec![]);
+        adapter.warm().await.unwrap();
+        let svc: Arc<dyn DiscoverService> = adapter;
+        let ranked = svc
+            .search("c", Some(vec![DiscoverableKind::App]), 20)
+            .await;
+        assert!(!ranked.is_empty());
+        for item in &ranked {
+            assert!(matches!(item.kind, DiscoverableKind::App));
+        }
     }
 }
