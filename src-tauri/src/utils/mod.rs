@@ -1,5 +1,6 @@
 use tauri::{Emitter, Manager};
 
+pub mod frecency;
 pub mod fuzzy;
 
 pub fn toggle_main_window(handle: &tauri::AppHandle) {
