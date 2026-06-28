@@ -1,6 +1,31 @@
+use crate::domain::apps::AppSource;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+pub const DEFAULT_TOP_N: usize = 8;
+
+pub fn default_top_n() -> usize {
+    DEFAULT_TOP_N
+}
+
+pub fn default_top_n_option() -> Option<usize> {
+    Some(DEFAULT_TOP_N)
+}
+
+pub fn default_disabled_sources() -> Vec<String> {
+    [
+        AppSource::Desktop,
+        AppSource::Flatpak,
+        AppSource::Snap,
+        AppSource::AppImage,
+        AppSource::Nix,
+        AppSource::Other,
+    ]
+    .iter()
+    .map(|s| serde_json::to_value(s).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default())
+    .collect()
+}
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct ThemeConfig {
@@ -171,6 +196,12 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub quick_actions: QuickActions,
+
+    #[serde(default)]
+    pub disabled_sources: Vec<String>,
+
+    #[serde(default = "default_top_n_option")]
+    pub top_n: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -216,6 +247,18 @@ impl AppConfig {
         }
 
         self.quick_actions.apply_defaults();
+
+        if self.disabled_sources.is_empty() {
+            self.disabled_sources = default_disabled_sources();
+        }
+
+        if self.top_n.is_none() {
+            self.top_n = Some(default_top_n());
+        }
+    }
+
+    pub fn top_n(&self) -> usize {
+        self.top_n.unwrap_or(DEFAULT_TOP_N)
     }
 }
 
@@ -361,5 +404,82 @@ mod tests {
         quick.pin_favorite("cursor");
         quick.unpin_favorite("code");
         assert_eq!(quick.pinned_favorites, vec!["cursor".to_string()]);
+    }
+
+    #[test]
+    fn test_apply_defaults_seeds_disabled_sources_to_full_source_set() {
+        let mut config = AppConfig::default();
+        assert!(config.disabled_sources.is_empty());
+        assert!(config.top_n.is_none());
+
+        config.apply_defaults();
+
+        let expected = default_disabled_sources();
+        assert_eq!(config.disabled_sources, expected);
+        assert_eq!(config.disabled_sources.len(), 6);
+        assert!(config.disabled_sources.contains(&"desktop".to_string()));
+        assert!(config.disabled_sources.contains(&"flatpak".to_string()));
+        assert!(config.disabled_sources.contains(&"snap".to_string()));
+        assert!(config.disabled_sources.contains(&"appimage".to_string()));
+        assert!(config.disabled_sources.contains(&"nix".to_string()));
+        assert!(config.disabled_sources.contains(&"other".to_string()));
+    }
+
+    #[test]
+    fn test_apply_defaults_seeds_top_n_to_some_eight() {
+        let mut config = AppConfig::default();
+        config.apply_defaults();
+        assert_eq!(config.top_n, Some(8));
+        assert_eq!(config.top_n(), 8);
+    }
+
+    #[test]
+    fn test_top_n_helper_returns_stored_value() {
+        let mut config = AppConfig::default();
+        config.top_n = Some(12);
+        config.apply_defaults();
+        assert_eq!(config.top_n, Some(12));
+        assert_eq!(config.top_n(), 12);
+    }
+
+    #[test]
+    fn test_top_n_helper_falls_back_when_none() {
+        let mut config = AppConfig::default();
+        config.apply_defaults();
+        config.top_n = None;
+        assert_eq!(config.top_n(), DEFAULT_TOP_N);
+    }
+
+    #[test]
+    fn test_default_top_n_returns_eight() {
+        assert_eq!(default_top_n(), 8);
+        assert_eq!(DEFAULT_TOP_N, 8);
+    }
+
+    #[test]
+    fn test_app_config_serde_round_trip_with_new_fields() {
+        let mut config = AppConfig::default();
+        config.disabled_sources = vec!["flatpak".to_string()];
+        config.top_n = Some(16);
+        config.apply_defaults();
+        config.disabled_sources = vec!["flatpak".to_string()];
+        config.top_n = Some(16);
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.disabled_sources, vec!["flatpak".to_string()]);
+        assert_eq!(parsed.top_n, Some(16));
+    }
+
+    #[test]
+    fn test_app_config_backward_compatible_when_new_fields_missing() {
+        let legacy_json = r#"{"preferred_model":"local"}"#;
+        let mut parsed: AppConfig = serde_json::from_str(legacy_json).unwrap();
+        assert!(parsed.disabled_sources.is_empty());
+        assert_eq!(parsed.top_n, Some(8));
+
+        parsed.apply_defaults();
+        assert_eq!(parsed.disabled_sources, default_disabled_sources());
+        assert_eq!(parsed.top_n, Some(8));
     }
 }

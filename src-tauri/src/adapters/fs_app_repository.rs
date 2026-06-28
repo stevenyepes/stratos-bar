@@ -261,6 +261,7 @@ impl FsAppRepository {
             startup_wm_class: entry.startup_wm_class().map(|s| s.to_string()),
             source,
             path: entry.path.to_string_lossy().to_string(),
+            ..Default::default()
         })
     }
 
@@ -317,6 +318,7 @@ impl FsAppRepository {
                     startup_wm_class: None,
                     source: AppSource::AppImage,
                     path: path.to_string_lossy().to_string(),
+                    ..Default::default()
                 },
             );
         }

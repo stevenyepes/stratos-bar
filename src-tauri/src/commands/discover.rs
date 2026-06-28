@@ -205,6 +205,7 @@ mod tests {
             startup_wm_class: None,
             source: AppSource::Desktop,
             path: format!("/usr/share/applications/{id}.desktop"),
+            ..Default::default()
         }
     }
 

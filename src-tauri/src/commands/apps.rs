@@ -119,6 +119,7 @@ mod tests {
             startup_wm_class: None,
             source: AppSource::Desktop,
             path: format!("/tmp/{name}.desktop"),
+            ..Default::default()
         }
     }
 
@@ -139,6 +140,7 @@ mod tests {
                 startup_wm_class: None,
                 source: AppSource::Desktop,
                 path: "/tmp/test.desktop".to_string(),
+                ..Default::default()
             }])
         });
 
