@@ -110,6 +110,7 @@ pub fn run() {
             commands::translation::translate,
             commands::discover::search_discoverable,
             commands::discover::warm_discover_index_command,
+            commands::discover::browse_discoverable,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -157,5 +158,10 @@ mod tests {
     #[test]
     fn warm_discover_index_command_is_exported() {
         let _f = commands::discover::warm_discover_index_command;
+    }
+
+    #[test]
+    fn browse_discoverable_command_is_exported() {
+        let _f = commands::discover::browse_discoverable;
     }
 }

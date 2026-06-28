@@ -144,7 +144,7 @@ fn score_field(query: &str, target: &str) -> Option<(f32, FieldStrength)> {
     Some((strength_score(strength, query, target), strength))
 }
 
-fn score_app(app: &AppEntry, query: &str) -> Option<ScoredEntry> {
+fn score_app(app: &AppEntry, query: &str, user_aliases: Option<&Vec<String>>) -> Option<ScoredEntry> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return None;
@@ -173,6 +173,9 @@ fn score_app(app: &AppEntry, query: &str) -> Option<ScoredEntry> {
         if let Some((score, _)) = score_field(trimmed, desc) {
             s.desc_score = score;
         }
+    }
+    if let Some(extra) = score_user_aliases(user_aliases, query) {
+        absorb_alias_into_entry(&mut s, extra);
     }
     if s.raw() <= 0.0 {
         return None;
@@ -319,10 +322,11 @@ impl IndexSnapshot {
 }
 
 pub struct FuzzyIndexAdapter {
-    app_repository: Arc<dyn AppRepository>,
-    history_repository: Arc<dyn HistoryRepository>,
+    pub(crate) app_repository: Arc<dyn AppRepository>,
+    pub(crate) history_repository: Arc<dyn HistoryRepository>,
     config_service: Arc<dyn ConfigService>,
     snapshot: RwLock<Option<Arc<IndexSnapshot>>>,
+    alias_overrides: crate::ports::discover_port::AliasOverrides,
 }
 
 impl FuzzyIndexAdapter {
@@ -336,7 +340,17 @@ impl FuzzyIndexAdapter {
             history_repository,
             config_service,
             snapshot: RwLock::new(None),
+            alias_overrides: crate::ports::discover_port::AliasOverrides::default(),
         }
+    }
+
+    pub fn set_user_aliases(&self, aliases: HashMap<String, Vec<String>>) {
+        self.alias_overrides.replace(aliases);
+        self.invalidate();
+    }
+
+    pub fn user_aliases(&self) -> HashMap<String, Vec<String>> {
+        self.alias_overrides.snapshot()
     }
 
     pub async fn build_snapshot(&self) -> Result<IndexSnapshot, String> {
@@ -371,6 +385,20 @@ impl FuzzyIndexAdapter {
         }
     }
 
+    pub fn all_apps(&self, snapshot: &IndexSnapshot) -> Vec<DiscoverableItem> {
+        let user_aliases = self.alias_overrides.snapshot();
+        snapshot
+            .apps
+            .iter()
+            .map(|app| {
+                let user = user_aliases.get(&app.id);
+                let mut item = DiscoverableItem::from_app(app);
+                item.aliases = merged_aliases(app, user);
+                item
+            })
+            .collect()
+    }
+
     pub fn current_snapshot(&self) -> Option<Arc<IndexSnapshot>> {
         self.snapshot.read().ok().and_then(|g| g.clone())
     }
@@ -387,11 +415,21 @@ impl FuzzyIndexAdapter {
             recent_by_id.insert(action.id.clone(), action);
         }
 
+        let category_freq = compute_category_frequency(&snapshot.apps);
+        let user_aliases = self.alias_overrides.snapshot();
+
         for app in &snapshot.apps {
-            if let Some(entry) = score_app(app, query) {
+            let user_aliases_for_app = user_aliases.get(&app.id);
+            if let Some(entry) = score_app(app, query, user_aliases_for_app) {
                 let base = entry.raw();
                 let recent = recent_by_id.get(&app.id).copied();
                 let boost = frequency_boost(recent, now_ms);
+                let category_boost = category_frequency_boost(
+                    app.categories.first().cloned(),
+                    &category_freq,
+                );
+                let category = app.categories.first().cloned();
+                let aliases = merged_aliases(app, user_aliases_for_app);
                 scored.push(DiscoverableItem {
                     kind: DiscoverableKind::App,
                     id: app.id.clone(),
@@ -399,11 +437,13 @@ impl FuzzyIndexAdapter {
                     description: app.description.clone(),
                     icon: app.icon.clone(),
                     keywords: app.keywords.clone(),
-                    score: (base + boost) * WEIGHT_APP,
+                    score: (base + boost + category_boost) * WEIGHT_APP,
                     source: format!("app:{:?}", app.source).to_lowercase(),
                     launch: DiscoverableLaunch::App {
                         exec: app.exec.clone(),
                     },
+                    category,
+                    aliases,
                 });
             }
         }
@@ -430,6 +470,8 @@ impl FuzzyIndexAdapter {
                         path: script.path.clone(),
                         args: script.args.clone(),
                     },
+                    category: None,
+                    aliases: Vec::new(),
                 });
             }
         }
@@ -457,6 +499,8 @@ impl FuzzyIndexAdapter {
                     launch: DiscoverableLaunch::AiTool {
                         tool_id: tool.id.clone(),
                     },
+                    category: None,
+                    aliases: Vec::new(),
                 });
             }
         }
@@ -476,6 +520,8 @@ impl FuzzyIndexAdapter {
                     launch: DiscoverableLaunch::Shortcut {
                         target: target.clone(),
                     },
+                    category: None,
+                    aliases: Vec::new(),
                 });
             }
         }
@@ -500,6 +546,8 @@ impl FuzzyIndexAdapter {
                     launch: DiscoverableLaunch::RecentFile {
                         path: action.content.clone(),
                     },
+                    category: None,
+                    aliases: Vec::new(),
                 });
             }
         }
@@ -550,6 +598,120 @@ pub fn install_shared(adapter: Arc<FuzzyIndexAdapter>) {
 
 pub fn current_shared() -> Option<Arc<FuzzyIndexAdapter>> {
     shared_index().read().ok().and_then(|g| g.clone())
+}
+
+const CATEGORY_FREQ_CAP: f32 = 16.0;
+const CATEGORY_FREQ_WEIGHT: f32 = 0.20;
+
+fn compute_category_frequency(apps: &[AppEntry]) -> HashMap<String, f32> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for app in apps {
+        if let Some(cat) = app.categories.first() {
+            *counts.entry(cat.clone()).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(cat, n)| {
+            let norm = (n as f32).ln_1p() / CATEGORY_FREQ_CAP.ln_1p();
+            (cat, norm.min(1.0))
+        })
+        .collect()
+}
+
+fn category_frequency_boost(category: Option<String>, freq: &HashMap<String, f32>) -> f32 {
+    let cat = match category {
+        Some(c) => c,
+        None => return 0.0,
+    };
+    freq.get(&cat).copied().unwrap_or(0.0) * CATEGORY_FREQ_WEIGHT
+}
+
+fn merged_aliases(app: &AppEntry, user_aliases: Option<&Vec<String>>) -> Vec<String> {
+    let mut out: Vec<String> = app
+        .keywords
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if let Some(extra) = user_aliases {
+        for a in extra {
+            let trimmed = a.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !out.iter().any(|existing| existing == trimmed) {
+                out.push(trimmed.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn score_user_aliases(
+    user_aliases: Option<&Vec<String>>,
+    query: &str,
+) -> Option<ScoredEntry> {
+    let aliases = user_aliases?;
+    if aliases.is_empty() {
+        return None;
+    }
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut entry = ScoredEntry::default();
+    let mut any = false;
+    for alias in aliases {
+        if let Some((score, strength)) = score_field(trimmed, alias) {
+            any = true;
+            if matches!(
+                strength,
+                FieldStrength::Prefix | FieldStrength::Contains
+            ) {
+                entry.alias_score = entry.alias_score.max(score);
+                entry.alias_strength = Some(match entry.alias_strength {
+                    Some(existing) if alias_strength_rank(existing)
+                        >= alias_strength_rank(strength) =>
+                    {
+                        existing
+                    }
+                    _ => strength,
+                });
+            } else if matches!(strength, FieldStrength::Subsequence) {
+                if entry.alias_score < score {
+                    entry.alias_score = score;
+                }
+                if entry.alias_strength.is_none() {
+                    entry.alias_strength = Some(strength);
+                }
+            }
+        }
+    }
+    if any { Some(entry) } else { None }
+}
+
+fn alias_strength_rank(s: FieldStrength) -> u8 {
+    match s {
+        FieldStrength::Prefix => 3,
+        FieldStrength::Contains => 2,
+        FieldStrength::Subsequence => 1,
+    }
+}
+
+fn absorb_alias_into_entry(entry: &mut ScoredEntry, alias_entry: ScoredEntry) {
+    if alias_entry.alias_score > entry.alias_score {
+        entry.alias_score = alias_entry.alias_score;
+    }
+    match (entry.alias_strength, alias_entry.alias_strength) {
+        (None, Some(s)) => entry.alias_strength = Some(s),
+        (Some(existing), Some(new)) => {
+            if alias_strength_rank(new) > alias_strength_rank(existing) {
+                entry.alias_strength = Some(new);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -666,20 +828,20 @@ mod tests {
     #[test]
     fn score_app_returns_none_for_empty_query() {
         let app = make_app("chrome", "Chrome");
-        assert!(score_app(&app, "").is_none());
-        assert!(score_app(&app, "   ").is_none());
+        assert!(score_app(&app, "", None).is_none());
+        assert!(score_app(&app, "   ", None).is_none());
     }
 
     #[test]
     fn score_app_returns_none_for_no_match() {
         let app = make_app("chrome", "Chrome");
-        assert!(score_app(&app, "xyzpdq").is_none());
+        assert!(score_app(&app, "xyzpdq", None).is_none());
     }
 
     #[test]
     fn name_prefix_outranks_name_contains() {
-        let prefix = score_app(&make_app("code", "Code"), "code").unwrap();
-        let contains = score_app(&make_app("vsc", "VisualStudioCode"), "code").unwrap();
+        let prefix = score_app(&make_app("code", "Code"), "code", None).unwrap();
+        let contains = score_app(&make_app("vsc", "VisualStudioCode"), "code", None).unwrap();
         assert_eq!(prefix.name_strength, Some(FieldStrength::Prefix));
         assert_eq!(contains.name_strength, Some(FieldStrength::Contains));
         assert!(prefix.raw() > contains.raw());
@@ -944,5 +1106,121 @@ mod tests {
             self.inner.lock().unwrap().clear();
             Ok(())
         }
+    }
+
+    fn make_app_with_category(id: &str, name: &str, category: &str) -> AppEntry {
+        let mut app = make_app(id, name);
+        app.categories = vec![category.to_string()];
+        app
+    }
+
+    #[tokio::test]
+    async fn rank_propagates_category_field_to_items() {
+        let apps = vec![
+            make_app_with_category("chrome", "Chrome", "Internet"),
+            make_app_with_category("code", "Code", "Development"),
+        ];
+        let adapter = build_adapter(apps, make_config(), vec![]);
+        let snap = adapter.build_snapshot().await.unwrap();
+        let ranked = adapter.rank(&snap, "chr", 10);
+        let chrome = ranked.iter().find(|r| r.id == "chrome").unwrap();
+        assert_eq!(chrome.category.as_deref(), Some("Internet"));
+        assert!(chrome.aliases.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rank_user_alias_pushes_matching_app_to_front() {
+        let apps = vec![
+            make_app("chromatic", "Chromatic"),
+            make_app("google-chrome", "Chrome"),
+        ];
+        let mut config = make_config();
+        config.shortcuts.clear();
+        let adapter = build_adapter(apps, config, vec![]);
+        adapter.set_user_aliases(HashMap::from([(
+            "google-chrome".to_string(),
+            vec!["browser".to_string()],
+        )]));
+        let snap = adapter.build_snapshot().await.unwrap();
+        let ranked = adapter.rank(&snap, "browser", 10);
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].id, "google-chrome");
+        assert_eq!(ranked[0].aliases, vec!["browser".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn rank_category_frequency_boost_breaks_ties() {
+        let mut apps = vec![
+            make_app_with_category("a", "Alpha", "Misc"),
+            make_app_with_category("b", "Beta", "Misc"),
+        ];
+        for i in 0..30 {
+            apps.push(make_app_with_category(
+                &format!("d{i}"),
+                &format!("DevTool{i}"),
+                "Development",
+            ));
+        }
+        let adapter = build_adapter(apps, make_config(), vec![]);
+        let snap = adapter.build_snapshot().await.unwrap();
+        let ranked = adapter.rank(&snap, "alph", 5);
+        assert!(!ranked.is_empty());
+        let alpha = ranked.iter().find(|r| r.id == "a").unwrap();
+        assert!(alpha.score > 0.0);
+    }
+
+    #[test]
+    fn compute_category_frequency_normalized_to_unit_range() {
+        let mut apps = Vec::new();
+        for i in 0..100 {
+            apps.push(make_app_with_category(
+                &format!("d{i}"),
+                &format!("Dev{i}"),
+                "Development",
+            ));
+        }
+        apps.push(make_app_with_category("z", "Zeta", "Misc"));
+        let freq = compute_category_frequency(&apps);
+        let dev = freq.get("Development").copied().unwrap_or(0.0);
+        assert!(dev > 0.5, "frequent category should approach 1, got {dev}");
+        assert!(dev <= 1.0);
+        assert!(freq.get("Misc").copied().unwrap_or(0.0) < dev);
+    }
+
+    #[test]
+    fn merged_aliases_dedupes_and_appends_user_aliases() {
+        let mut app = make_app("chrome", "Chrome");
+        app.keywords = vec!["web".to_string(), "browser".to_string()];
+        let user = vec!["  browser  ".to_string(), "net".to_string()];
+        let merged = merged_aliases(&app, Some(&user));
+        assert!(merged.iter().any(|a| a == "web"));
+        assert_eq!(
+            merged.iter().filter(|a| *a == "browser").count(),
+            1,
+            "user alias dedupes against keywords"
+        );
+        assert!(merged.iter().any(|a| a == "net"));
+        assert!(merged.iter().all(|a| !a.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn all_apps_returns_snapshot_apps_with_aliases_and_category() {
+        let apps = vec![
+            make_app_with_category("chrome", "Chrome", "Internet"),
+            make_app_with_category("code", "Code", "Development"),
+        ];
+        let adapter = build_adapter(apps, make_config(), vec![]);
+        adapter.set_user_aliases(HashMap::from([(
+            "google-chrome".to_string(),
+            vec!["browser".to_string()],
+        )]));
+        let snap = adapter.build_snapshot().await.unwrap();
+        let all = adapter.all_apps(&snap);
+        assert_eq!(all.len(), 2);
+        let chrome = all.iter().find(|a| a.id == "chrome").unwrap();
+        assert_eq!(chrome.category.as_deref(), Some("Internet"));
+        let code = all.iter().find(|a| a.id == "code").unwrap();
+        assert_eq!(code.category.as_deref(), Some("Development"));
+        assert!(code.aliases.is_empty());
     }
 }

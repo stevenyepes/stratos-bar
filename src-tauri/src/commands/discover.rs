@@ -1,5 +1,6 @@
 use crate::adapters::fuzzy_index::{install_shared, shared_index, FuzzyIndexAdapter};
-use crate::domain::discover::DiscoverableItem;
+use crate::domain::action::Action;
+use crate::domain::discover::{BrowseSections, DiscoverableItem};
 use crate::ports::discover_port::DiscoverService;
 use crate::state::AppState;
 use std::sync::Arc;
@@ -60,6 +61,104 @@ pub async fn search_discoverable(
 #[tauri::command]
 pub async fn warm_discover_index_command(state: State<'_, AppState>) -> Result<(), String> {
     warm_discover_index(&state).await
+}
+
+const BROWSE_RECENT_FILE_LIMIT: usize = 20;
+
+pub fn browse_discoverable_logic(
+    adapter: &FuzzyIndexAdapter,
+    scripts: Vec<crate::domain::config::ScriptConfig>,
+    ai_tools: Vec<crate::domain::config::AiTool>,
+    recent_files: Vec<Action>,
+    shortcuts: std::collections::HashMap<String, String>,
+) -> Result<BrowseSections, String> {
+    let snap = adapter.current_snapshot().ok_or_else(|| {
+        let _ = adapter.ensure_warm();
+        "discover index not warm".to_string()
+    });
+    let snap = match snap {
+        Ok(s) => s,
+        Err(_) => return browse_from_state(adapter, scripts, ai_tools, recent_files, shortcuts),
+    };
+
+    let items = adapter.all_apps(&snap);
+    let scripts_filtered = scripts;
+    let ai_tools_filtered = ai_tools;
+    let recent = recent_files
+        .into_iter()
+        .take(BROWSE_RECENT_FILE_LIMIT)
+        .collect();
+    Ok(BrowseSections::from_snapshot(
+        items,
+        scripts_filtered,
+        ai_tools_filtered,
+        recent,
+        shortcuts,
+    ))
+}
+
+fn browse_from_state(
+    adapter: &FuzzyIndexAdapter,
+    scripts: Vec<crate::domain::config::ScriptConfig>,
+    ai_tools: Vec<crate::domain::config::AiTool>,
+    recent_files: Vec<Action>,
+    shortcuts: std::collections::HashMap<String, String>,
+) -> Result<BrowseSections, String> {
+    let apps = adapter
+        .app_repository
+        .list_apps()
+        .unwrap_or_default()
+        .iter()
+        .map(crate::domain::discover::DiscoverableItem::from_app)
+        .collect();
+    let recent = recent_files
+        .into_iter()
+        .take(BROWSE_RECENT_FILE_LIMIT)
+        .collect();
+    Ok(BrowseSections::from_snapshot(
+        apps,
+        scripts,
+        ai_tools,
+        recent,
+        shortcuts,
+    ))
+}
+
+#[tauri::command]
+pub async fn browse_discoverable(
+    state: State<'_, AppState>,
+) -> Result<BrowseSections, String> {
+    let adapter = match shared_index().read().ok().and_then(|g| g.clone()) {
+        Some(adapter) => adapter,
+        None => {
+            warm_discover_index(&state).await?;
+            shared_index()
+                .read()
+                .map_err(|e| e.to_string())?
+                .clone()
+                .ok_or_else(|| "discover index not initialized".to_string())?
+        }
+    };
+
+    let config = state.config_service.load_config();
+    let recent = state
+        .history_repository
+        .get_recent(BROWSE_RECENT_FILE_LIMIT * 4)
+        .await
+        .map_err(|e| e.to_string())?;
+    let recent_files: Vec<Action> = recent
+        .into_iter()
+        .filter(|a| a.kind == "file")
+        .take(BROWSE_RECENT_FILE_LIMIT)
+        .collect();
+
+    browse_discoverable_logic(
+        &adapter,
+        config.scripts,
+        config.ai_tools,
+        recent_files,
+        config.shortcuts,
+    )
 }
 
 #[cfg(test)]
@@ -237,6 +336,8 @@ mod tests {
             launch: DiscoverableLaunch::App {
                 exec: "google-chrome".to_string(),
             },
+            category: None,
+            aliases: Vec::new(),
         };
         let json = serde_json::to_string(&item).unwrap();
         assert!(json.contains("\"kind\":\"app\""));
@@ -289,5 +390,80 @@ mod tests {
         install_shared(Arc::new(adapter));
         let shared = shared_index().read().unwrap().clone();
         assert!(shared.is_some());
+    }
+
+    fn make_categorized_app(id: &str, name: &str, category: &str) -> AppEntry {
+        let mut app = make_app(id, name);
+        app.categories = vec![category.to_string()];
+        app
+    }
+
+    #[tokio::test]
+    async fn browse_discoverable_logic_groups_apps_by_category() {
+        let apps = vec![
+            make_categorized_app("chrome", "Chrome", "Internet"),
+            make_categorized_app("firefox", "Firefox", "Internet"),
+            make_categorized_app("code", "Code", "Development"),
+        ];
+        let adapter = make_adapter(apps, make_config());
+        adapter.warm().await.unwrap();
+
+        let mut shortcuts = HashMap::new();
+        shortcuts.insert("browser".to_string(), "google-chrome".to_string());
+        let recent_files = vec![Action {
+            id: "f1".to_string(),
+            kind: "file".to_string(),
+            content: "/tmp/note.md".to_string(),
+            name: "note.md".to_string(),
+            icon: None,
+            last_accessed: 1,
+            frequency: 1,
+        }];
+        let result = browse_discoverable_logic(
+            &adapter,
+            make_config().scripts,
+            make_config().ai_tools,
+            recent_files,
+            shortcuts,
+        )
+        .unwrap();
+        assert_eq!(result.apps_by_category.get("Internet").unwrap().len(), 2);
+        assert_eq!(
+            result.apps_by_category.get("Development").unwrap().len(),
+            1
+        );
+        assert_eq!(result.recent_files.len(), 1);
+        assert_eq!(
+            result.shortcuts.get("browser").map(|s| s.as_str()),
+            Some("google-chrome")
+        );
+    }
+
+    #[tokio::test]
+    async fn browse_discoverable_logic_respects_recent_file_limit() {
+        let adapter = make_adapter(vec![], make_config());
+        adapter.warm().await.unwrap();
+
+        let mut recent = Vec::new();
+        for i in 0..50 {
+            recent.push(Action {
+                id: format!("f{i}"),
+                kind: "file".to_string(),
+                content: format!("/tmp/file{i}"),
+                name: format!("file{i}"),
+                icon: None,
+                last_accessed: i as u64,
+                frequency: 1,
+            });
+        }
+        let result = browse_discoverable_logic(
+            &adapter,
+            Vec::new(),
+            Vec::new(),
+            recent,
+            HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!(result.recent_files.len(), 20);
     }
 }
