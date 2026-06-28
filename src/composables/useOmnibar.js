@@ -12,10 +12,8 @@ const EXPANDED_HEIGHT = 500
 const CHAT_HEIGHT = 600
 const BASE_WIDTH = 600
 
-// Singleton state to ensure consistency if shared (though mostly used in App.vue)
-// For now, we'll keep it as a standard composable function, but usually these are singletons in this type of app.
-// I'll define refs outside implementation to make it a singleton or inside for scoped. 
-// Given the app structure, singleton is probably safer for the global window state.
+const SEARCH_DEBOUNCE_MS = 90
+const FREQUENT_APP_LIMIT = 8
 
 const uiState = ref('idle') // 'idle', 'searching', 'chatting', 'executing'
 const query = ref('')
@@ -28,6 +26,58 @@ const recentActions = shallowRef([])
 const selectedIndex = ref(0)
 const showSettings = ref(false)
 const searchInput = ref(null) // Template ref
+
+const scoredApps = shallowRef([])
+const topFrecencyApps = shallowRef([])
+const aliasesByAppId = ref({})
+
+let searchDebounce = null
+let lastSearchToken = 0
+let queryWatcherInstalled = false
+function runSharedSearch(value) {
+    const trimmed = (value || '').trim()
+    if (!trimmed) {
+        scoredApps.value = []
+        return
+    }
+    const token = ++lastSearchToken
+    invoke('search_apps', { query: trimmed, limit: 25 })
+        .then((result) => {
+            if (token !== lastSearchToken) return
+            const merged = mergeAliasesIntoApps((result || []).map((r) => r.app))
+            scoredApps.value = (result || []).map((r, i) => ({
+                app: merged[i] || r.app,
+                score: r.score,
+                matched_field: r.matched_field,
+            }))
+        })
+        .catch((e) => {
+            console.error('search_apps failed', e)
+            scoredApps.value = []
+        })
+}
+
+function mergeAliasesIntoApps(list) {
+    const aliases = aliasesByAppId.value || {}
+    if (!aliases || Object.keys(aliases).length === 0) return list
+    return list.map((a) => {
+        if (a.aliases && a.aliases.length) return a
+        const userAliases = aliases[a.id] || aliases[a.exec]
+        if (userAliases && userAliases.length) {
+            return { ...a, aliases: userAliases }
+        }
+        return a
+    })
+}
+
+function installSharedQueryWatcher() {
+    if (queryWatcherInstalled) return
+    queryWatcherInstalled = true
+    watch(query, (newVal) => {
+        if (searchDebounce) clearTimeout(searchDebounce)
+        searchDebounce = setTimeout(() => runSharedSearch(newVal), SEARCH_DEBOUNCE_MS)
+    })
+}
 
 export function useOmnibar() {
     const appWindow = getCurrentWindow()
@@ -44,17 +94,8 @@ export function useOmnibar() {
             if (monitor) {
                 const scaleFactor = monitor.scaleFactor
                 const screenWidth = monitor.size.width / scaleFactor
-                // Fixed scale to avoid resize issues
                 const windowScale = 0.2
                 width = Math.max(BASE_WIDTH, Math.floor(screenWidth * windowScale))
-
-                // Cap at reasonable max for ultrawide (unless user explicitly sets high scale, but let's constrain base width)
-                // Actually, if user sets scale, they probably want that scale. 
-                // But let's apply a soft cap for defaults or if it gets too crazy? 
-                // Plan said: "cap at 95% of screen width" basically.
-                // The issue was auto-40% was too big.
-                // If user sets 0.3, on 3440 screen -> 1032px. That's fine.
-                // If user sets 0.5 -> 1720px. 
 
             } else {
                 const webScreenWidth = window.screen.width
@@ -68,32 +109,20 @@ export function useOmnibar() {
                 height = CHAT_HEIGHT
             } else if (uiState.value === 'translating') {
                 height = EXPANDED_HEIGHT
-                width = Math.max(1000, Math.floor(width * 1.4)) // Wider for split pane
+                width = Math.max(1000, Math.floor(width * 1.4))
             } else if (uiState.value === 'searching') {
                 height = EXPANDED_HEIGHT
-                // Check if file search mode
                 if (query.value && query.value.trim().toLowerCase().startsWith('ff ')) {
-                    // Dual pane width
                     width = Math.max(1000, Math.floor(width * 1.4))
                 }
             } else if (uiState.value === 'executing') {
                 height = EXPANDED_HEIGHT
             }
 
-
-
-
-            // Backend resize (Rust command) for better Wayland support
-            // await invoke('resize_window', { width: Math.floor(width), height: Math.floor(height) })
-
-            // Reverting to frontend resize to fix "maximize" glitch reported by user.
-            // The backend resize command (added for Wayland) seems to trigger a full-screen state briefly.
             await appWindow.setSize(new LogicalSize(width, height))
 
-            // Try to set focus immediately to combat resize blur
             if (searchInput.value) searchInput.value.focus()
 
-            // Restore focus (delayed safety net)
             if (uiState.value === 'searching' || uiState.value === 'idle') {
                 setTimeout(async () => {
                     if (searchInput.value) searchInput.value.focus()
@@ -135,7 +164,6 @@ export function useOmnibar() {
             scripts.value = config.value.scripts
         }
 
-        // Trigger resize in case scale changed
         updateWindowSize()
     }
 
@@ -149,6 +177,7 @@ export function useOmnibar() {
             ])
             apps.value = appsList
             scripts.value = scriptsList
+            await loadTopFrecency()
         } catch (e) {
             console.error('Failed to load data', e)
         }
@@ -159,6 +188,26 @@ export function useOmnibar() {
             recentActions.value = await invoke('get_recent_actions', { limit: 20 })
         } catch (e) {
             console.error('Failed to load recent actions', e)
+        }
+    }
+
+    async function loadTopFrecency() {
+        try {
+            const top = await invoke('get_top_frecency', {
+                limit: FREQUENT_APP_LIMIT,
+                kindFilter: 'app',
+            })
+            topFrecencyApps.value = (top || [])
+                .filter((a) => a && a.kind === 'app' && a.content)
+                .map((a) => ({
+                    exec: a.content,
+                    name: a.name,
+                    icon: a.icon || null,
+                    frequency: a.frequency,
+                    lastAccessed: a.last_accessed,
+                }))
+        } catch (e) {
+            console.error('Failed to load top frecency', e)
         }
     }
 
@@ -180,17 +229,13 @@ export function useOmnibar() {
                 action.kind = 'app';
                 action.content = item.exec;
                 action.name = item.name;
-                action.icon = item.icon; // Added icon
+                action.icon = item.icon;
             } else if (item.alias) { // Script
                 action.id = 'script:' + item.alias;
                 action.kind = 'script';
                 action.content = item.path;
                 action.name = item.alias;
-            } else if (item.address) { // Window
-                // We might not want to record window switching as persistent "Action" 
-                // effectively, but user asked for "recent selected actions".
-                // Window switching is ephemeral.
-                // Let's exclude window switching for now unless requested.
+            } else if (item.address) {
                 return;
             } else if (typeof item === 'string') { // File path
                 action.id = 'file:' + item;
@@ -203,12 +248,12 @@ export function useOmnibar() {
                 action.content = item.id || item.name;
                 action.name = item.name;
             } else {
-                return; // Unknown
+                return;
             }
 
             await invoke('record_action', { action })
-            // Refresh
             loadRecentActions()
+            loadTopFrecency()
         } catch (e) {
             console.error('Failed to record action', e)
         }
@@ -241,7 +286,6 @@ export function useOmnibar() {
             if (tool) return { type: 'tool', ...tool }
         }
 
-        // Check scripts for exact match (Prioritized)
         const exactScript = scripts.value.find(s => s.alias.toLowerCase() === q)
         if (exactScript) {
             return {
@@ -294,41 +338,25 @@ export function useOmnibar() {
 
     const filteredApps = computed(() => {
         if (!query.value) return []
-        const q = query.value.toLowerCase()
+        return scoredApps.value.map((s) => s.app).slice(0, 10)
+    })
 
-        // 1. Filter
-        let matches = apps.value.filter(app => {
-            if (app.name.toLowerCase().includes(q)) return true
-            if (app.exec.toLowerCase().includes(q)) return true
-            if (app.generic_name && app.generic_name.toLowerCase().includes(q)) return true
-            if (app.description && app.description.toLowerCase().includes(q)) return true
-            if (app.keywords && app.keywords.some(k => k.toLowerCase().includes(q))) return true
-            return false
-        })
-
-        // 2. Rank using history
-        const recentMap = new Map()
-        recentActions.value.forEach((action, index) => {
-            if (action.kind === 'app') {
-                recentMap.set(action.content, 10000 - index)
-            }
-        })
-
-        matches.sort((a, b) => {
-            const scoreA = recentMap.get(a.exec) || 0
-            const scoreB = recentMap.get(b.exec) || 0
-            if (scoreA !== scoreB) return scoreB - scoreA // Descending score
-
-            // Secondary sort: Starts with query?
-            const aStarts = a.name.toLowerCase().startsWith(q)
-            const bStarts = b.name.toLowerCase().startsWith(q)
-            if (aStarts && !bStarts) return -1
-            if (!aStarts && bStarts) return 1
-
-            return a.name.localeCompare(b.name)
-        })
-
-        return matches.slice(0, 5)
+    const topApps = computed(() => {
+        if (query.value) return []
+        const execToApp = new Map(apps.value.map((a) => [a.exec, a]))
+        const merged = mergeAliasesIntoApps(apps.value)
+        const seen = new Set()
+        const items = []
+        for (const tf of topFrecencyApps.value) {
+            const app = execToApp.get(tf.exec)
+            if (!app) continue
+            if (seen.has(app.id)) continue
+            seen.add(app.id)
+            const enriched = merged.find((a) => a.id === app.id) || app
+            items.push({ ...enriched, score: null })
+            if (items.length >= FREQUENT_APP_LIMIT) break
+        }
+        return items
     })
 
     const filteredScripts = computed(() => {
@@ -340,9 +368,6 @@ export function useOmnibar() {
         const recentMap = new Map()
         recentActions.value.forEach((action, index) => {
             if (action.kind === 'script') {
-                // script actions store path in content, or unique alias?
-                // logic in recordAction used item.path for content.
-                // Assuming reliable mapping.
                 recentMap.set(action.content, 10000 - index)
             }
         })
@@ -358,8 +383,9 @@ export function useOmnibar() {
     })
 
     // Watchers
+    installSharedQueryWatcher()
+
     watch(query, (newVal) => {
-        // Smart selection
         if (matchedTool.value) {
             selectedIndex.value = 0
         } else {
@@ -367,10 +393,7 @@ export function useOmnibar() {
                 w.title.toLowerCase().includes(newVal.toLowerCase()) ||
                 w.class.toLowerCase().includes(newVal.toLowerCase())
             );
-            const hasApps = apps.value.some(app =>
-                app.name.toLowerCase().includes(newVal.toLowerCase()) ||
-                app.exec.toLowerCase().includes(newVal.toLowerCase())
-            );
+            const hasApps = scoredApps.value.length > 0
             const hasScripts = scripts.value.some(s => s.alias.toLowerCase().includes(newVal.toLowerCase()));
 
             if (hasWindows || hasApps || hasScripts) {
@@ -389,19 +412,16 @@ export function useOmnibar() {
             updateWindowSize()
         }
 
-        // Translation Mode Trigger
         if (newVal && newVal.startsWith('tr ')) {
             if (uiState.value !== 'translating') {
                 uiState.value = 'translating'
                 updateWindowSize()
             }
         } else if (uiState.value === 'translating') {
-            // Revert to searching if prefix removed
             uiState.value = 'searching'
             updateWindowSize()
         }
 
-        // File search
         if (!newVal || !newVal.toLowerCase().startsWith('ff ')) {
             files.value = []
         } else {
@@ -438,9 +458,67 @@ export function useOmnibar() {
 
     async function subscribeAppUpdates() {
         const { listen } = await import('@tauri-apps/api/event')
-        return await listen('apps-updated', (e) => {
+        const offApps = await listen('apps-updated', (e) => {
             apps.value = e.payload
+            loadTopFrecency()
         })
+        const offAliases = await listen('aliases-updated', (e) => {
+            const payload = e.payload || {}
+            if (payload.app_id && Array.isArray(payload.aliases)) {
+                aliasesByAppId.value = {
+                    ...aliasesByAppId.value,
+                    [payload.app_id]: payload.aliases,
+                }
+            }
+        })
+        return () => {
+            offApps()
+            offAliases()
+        }
+    }
+
+    async function setAlias(appId, aliases) {
+        try {
+            await invoke('set_alias', { appId, aliases })
+        } catch (e) {
+            console.error('Failed to set alias', e)
+            throw e
+        }
+    }
+
+    async function removeAlias(appId, alias) {
+        try {
+            await invoke('remove_alias', { appId, alias })
+        } catch (e) {
+            console.error('Failed to remove alias', e)
+            throw e
+        }
+    }
+
+    async function listAliases() {
+        try {
+            const list = await invoke('list_aliases')
+            const next = {}
+            for (const entry of list || []) {
+                if (entry && entry.app_id) {
+                    next[entry.app_id] = entry.aliases || []
+                }
+            }
+            aliasesByAppId.value = next
+            return next
+        } catch (e) {
+            console.error('Failed to list aliases', e)
+            return {}
+        }
+    }
+
+    async function listCategories() {
+        try {
+            return await invoke('list_categories')
+        } catch (e) {
+            console.error('Failed to list categories', e)
+            return []
+        }
     }
 
     return {
@@ -461,6 +539,9 @@ export function useOmnibar() {
         filteredWindows,
         filteredApps,
         filteredScripts,
+        topApps,
+        scoredApps,
+        aliasesByAppId,
 
         // Actions
         updateWindowSize,
@@ -471,6 +552,33 @@ export function useOmnibar() {
         recordAction,
         clearActions,
         subscribeAppUpdates,
+        loadTopFrecency,
+        setAlias,
+        removeAlias,
+        listAliases,
+        listCategories,
         recentActions
     }
+}
+
+export function _resetOmnibarForTests() {
+    uiState.value = 'idle'
+    query.value = ''
+    config.value = null
+    apps.value = []
+    windows.value = []
+    files.value = []
+    scripts.value = []
+    recentActions.value = []
+    selectedIndex.value = 0
+    showSettings.value = false
+    searchInput.value = null
+    scoredApps.value = []
+    topFrecencyApps.value = []
+    aliasesByAppId.value = {}
+}
+
+export const _internals = {
+    SEARCH_DEBOUNCE_MS,
+    FREQUENT_APP_LIMIT,
 }

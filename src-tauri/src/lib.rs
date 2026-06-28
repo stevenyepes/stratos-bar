@@ -90,6 +90,7 @@ pub fn run() {
             commands::apps::rescan_apps,
             commands::apps::set_custom_app_dirs,
             commands::apps::launch_app,
+            commands::apps::search_apps,
             commands::config::get_config,
             commands::config::save_config,
             commands::ai::ask_ai,
@@ -103,10 +104,46 @@ pub fn run() {
             commands::windows::resize_window,
             commands::system::generate_video_thumbnail,
             commands::history::get_recent_actions,
+            commands::history::get_top_frecency,
             commands::history::record_action,
             commands::history::clear_history,
             commands::translation::translate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::commands;
+
+    #[test]
+    fn search_apps_command_is_exported() {
+        let _f = commands::apps::search_apps;
+    }
+
+    #[test]
+    fn get_top_frecency_command_is_exported() {
+        let _f = commands::history::get_top_frecency;
+    }
+
+    #[test]
+    fn launch_app_command_is_exported() {
+        let _f = commands::apps::launch_app;
+    }
+
+    #[test]
+    fn list_apps_command_is_exported() {
+        let _f = commands::apps::list_apps;
+    }
+
+    #[test]
+    fn get_config_command_is_exported() {
+        let _f = commands::config::get_config;
+    }
+
+    #[test]
+    fn save_config_command_is_exported() {
+        let _f = commands::config::save_config;
+    }
 }

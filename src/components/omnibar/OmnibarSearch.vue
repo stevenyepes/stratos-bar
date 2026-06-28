@@ -46,7 +46,7 @@
                     <span>RECENT ACTIONS</span>
                     <button class="clear-btn" @click.stop="handleClear">CLEAR</button>
                  </div>
-                 <div 
+                 <div
                    v-for="(action, index) in recentActions"
                    :key="action.id"
                    class="result-item glass-hover interactive"
@@ -65,6 +65,31 @@
                      <div class="result-subtitle text-dim">{{ action.content }}</div>
                    </div>
                    <div class="result-hint text-dimmer" v-if="selectedIndex === (index + 1)">[↵]</div>
+                 </div>
+            </div>
+
+            <!-- Top Apps rail (Raycast-style idle suggestions) -->
+            <div v-if="!query && topApps.length > 0" class="results-section">
+                 <div class="section-header d-flex align-center justify-space-between">
+                    <span>TOP APPS</span>
+                    <span class="text-dimmer text-caption">Most used</span>
+                 </div>
+                 <div
+                   v-for="(app, index) in topApps"
+                   :key="'top-' + app.id"
+                   class="result-item glass-hover interactive top-app-item"
+                   :class="{'result-item-active': selectedIndex === (recentActions.length + 1 + index)}"
+                   @click="executeAction(recentActions.length + 1 + index)"
+                 >
+                   <div class="result-icon">
+                       <img v-if="app.icon" :src="convertFileSrc(app.icon)" width="24" height="24" />
+                       <span v-else>📦</span>
+                   </div>
+                   <div class="result-content">
+                     <div class="result-title">{{ app.name }}</div>
+                     <div class="result-subtitle text-dim">{{ app.exec }}</div>
+                   </div>
+                   <span class="source-badge" :class="`source-${app.source}`">{{ sourceLabel(app.source) }}</span>
                  </div>
             </div>
 
@@ -150,6 +175,8 @@
                     <div class="result-title" v-html="highlightMatch(app.name)"></div>
                     <div class="result-subtitle text-dim">{{ app.exec }}</div>
                   </div>
+                  <span class="source-badge" :class="`source-${app.source}`">{{ sourceLabel(app.source) }}</span>
+                  <span v-if="appScoreFor(app) !== null" class="score-hint text-dimmer">{{ formatScore(appScoreFor(app)) }}</span>
                 </div>
               </div>
 
@@ -227,11 +254,12 @@ import { useScriptRunner } from '../../composables/useScriptRunner'
 
 const emit = defineEmits(['close'])
 
-const { 
+const {
   uiState, query, searchInput, selectedIndex, showSettings,
   matchedTool, filteredWindows, filteredApps, filteredScripts, files,
   focusWindow, hideWindow,
-  recentActions, recordAction, clearActions
+  recentActions, recordAction, clearActions,
+  topApps, scoredApps
 } = useOmnibar()
 
 const { askAI, executeAiTool, executeSkill } = useAI()
@@ -263,7 +291,7 @@ const isDefaultState = computed(() => !query.value)
 
 const totalItems = computed(() => {
   if (isDefaultState.value) {
-      return 1 + (recentActions.value ? recentActions.value.length : 0)
+      return 1 + (recentActions.value ? recentActions.value.length : 0) + (topApps.value ? topApps.value.length : 0)
   }
   return 1 + filteredWindows.value.length + filteredApps.value.length + filteredScripts.value.length + files.value.length
 })
@@ -417,9 +445,27 @@ function highlightMatch(text) {
   let q = query.value
   if (isFileSearchMode.value) q = q.substring(3).trim()
   if (!q) return text
-  
+
   const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
   return text.replace(regex, '<span class="text-gradient">$1</span>')
+}
+
+function sourceLabel(source) {
+  if (!source) return ''
+  const normalized = String(source).toLowerCase()
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function appScoreFor(app) {
+  if (!app || !scoredApps.value) return null
+  const match = scoredApps.value.find((s) => s.app && s.app.id === app.id)
+  return match ? match.score : null
+}
+
+function formatScore(score) {
+  if (score === null || score === undefined) return ''
+  if (typeof score !== 'number') return ''
+  return score.toFixed(2)
 }
 
 function getFileIcon(path) {
@@ -646,5 +692,57 @@ function getFileColor(path) {
   opacity: 1;
   background: rgba(255, 50, 50, 0.1);
   color: #fca5a5;
+}
+
+.source-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--theme-text-dim, rgba(255, 255, 255, 0.7));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.source-badge.source-flatpak {
+  background: rgba(122, 162, 247, 0.15);
+  color: #7aa2f7;
+  border-color: rgba(122, 162, 247, 0.3);
+}
+
+.source-badge.source-snap {
+  background: rgba(247, 122, 162, 0.15);
+  color: #f77aa2;
+  border-color: rgba(247, 122, 162, 0.3);
+}
+
+.source-badge.source-appimage {
+  background: rgba(247, 200, 122, 0.15);
+  color: #f7c87a;
+  border-color: rgba(247, 200, 122, 0.3);
+}
+
+.source-badge.source-nix {
+  background: rgba(122, 247, 162, 0.15);
+  color: #7af7a2;
+  border-color: rgba(122, 247, 162, 0.3);
+}
+
+.score-hint {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.top-app-item {
+  border-left: 2px solid rgba(122, 162, 247, 0.2);
 }
 </style>
