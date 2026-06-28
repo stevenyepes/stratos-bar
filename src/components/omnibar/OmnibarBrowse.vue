@@ -18,22 +18,79 @@
       <button class="back-btn interactive" @click="emit('close')" title="Back to search">←</button>
     </div>
 
+    <div
+      v-if="hasChips"
+      class="chip-strip custom-scrollbar"
+      data-testid="browse-chip-strip"
+    >
+      <div v-if="categoriesWithCounts.length > 0" class="chip-row">
+        <span class="chip-row-label">Category</span>
+        <button
+          class="chip interactive"
+          :class="{ 'chip-active': activeCategory === null }"
+          data-testid="chip-category-all"
+          @click="setCategory(null)"
+        >
+          All
+          <span class="chip-count">{{ totalCount }}</span>
+        </button>
+        <button
+          v-for="cat in categoriesWithCounts"
+          :key="`cat-${cat.name}`"
+          class="chip interactive"
+          :class="{ 'chip-active': activeCategory === cat.name }"
+          :data-testid="`chip-category-${cat.name}`"
+          @click="setCategory(cat.name)"
+        >
+          {{ displayCategoryName(cat.name) }}
+          <span class="chip-count">{{ cat.count }}</span>
+        </button>
+      </div>
+
+      <div v-if="sourcesWithCounts.length > 1" class="chip-row">
+        <span class="chip-row-label">Source</span>
+        <button
+          class="chip interactive"
+          :class="{ 'chip-active': activeSource === null }"
+          data-testid="chip-source-all"
+          @click="setSource(null)"
+        >
+          All
+        </button>
+        <button
+          v-for="src in sourcesWithCounts"
+          :key="`src-${src.name}`"
+          class="chip interactive"
+          :class="{
+            'chip-active': activeSource === src.name,
+            [`source-${src.name}`]: true,
+          }"
+          :data-testid="`chip-source-${src.name}`"
+          @click="setSource(src.name)"
+        >
+          {{ src.label }}
+          <span class="chip-count">{{ src.count }}</span>
+        </button>
+      </div>
+    </div>
+
     <div class="main-content">
       <div class="browse-col custom-scrollbar">
-        <div v-if="Object.keys(grouped).length === 0" class="empty-state">
+        <div v-if="Object.keys(filteredGrouped).length === 0" class="empty-state">
           <v-icon icon="mdi-shape-outline" size="48" class="mb-3 opacity-50"></v-icon>
           <div class="text-h6 font-weight-regular">No categories found</div>
           <div class="text-caption text-medium-emphasis">Install some apps or rescan from Settings.</div>
         </div>
 
         <section
-          v-for="(bucket, cat) in grouped"
+          v-for="(bucket, cat) in filteredGrouped"
           :key="cat"
           class="category-section"
+          :data-testid="`category-section-${cat}`"
         >
           <header class="category-header">
             <v-icon :icon="iconForCategory(cat)" size="18" class="mr-2 text-primary"></v-icon>
-            <span class="category-title">{{ formatCategoryName(cat) }}</span>
+            <span class="category-title">{{ displayCategoryName(cat) }}</span>
             <v-spacer></v-spacer>
             <span class="category-count">{{ bucket.length }}</span>
           </header>
@@ -42,7 +99,8 @@
             v-for="(app, index) in bucket"
             :key="app.id"
             class="result-item glass-hover interactive browse-app-item"
-            :class="{'result-item-active': isSelected(cat, index)}"
+            :class="{ 'result-item-active': isSelected(cat, index) }"
+            :data-testid="`browse-app-${app.id}`"
             @click="launch(app)"
             @mouseenter="setHover(cat, index)"
           >
@@ -52,9 +110,11 @@
             </div>
             <div class="result-content">
               <div class="result-title">{{ app.name }}</div>
-              <div class="result-subtitle text-dim">{{ app.exec }}</div>
+              <div class="result-subtitle text-dim">{{ launchExec(app) }}</div>
             </div>
-            <span class="source-badge" :class="`source-${app.source}`">{{ sourceLabel(app.source) }}</span>
+            <span class="source-badge" :class="`source-${sourceKey(app.source)}`">
+              {{ sourceLabel(app.source) }}
+            </span>
           </div>
         </section>
       </div>
@@ -63,59 +123,144 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { useOmnibar } from '../../composables/useOmnibar'
 
 const emit = defineEmits(['close'])
-const { apps, recordAction, hideWindow } = useOmnibar()
+const { recordAction, hideWindow } = useOmnibar()
 
 const localQuery = ref('')
 const searchInput = ref(null)
 const hovered = ref({ category: null, index: 0 })
 
-const normalizedApps = computed(() => {
-  const list = apps.value || []
-  const q = localQuery.value.trim().toLowerCase()
-  if (!q) return list
-  return list.filter((a) => {
-    const haystack = `${a.name || ''} ${a.exec || ''}`.toLowerCase()
-    return haystack.includes(q)
-  })
+const sections = ref({
+  apps_by_category: {},
+  scripts: [],
+  ai_tools: [],
+  recent_files: [],
+  shortcuts: {},
+  category_counts: {},
+  source_counts: {},
+  kind_counts: {},
 })
 
-const grouped = computed(() => {
-  const map = {}
-  for (const app of normalizedApps.value) {
-    const cats = (app && app.categories) ? app.categories : []
-    if (!cats || cats.length === 0) {
-      const key = 'Uncategorized'
-      if (!map[key]) map[key] = []
-      map[key].push(app)
-      continue
-    }
-    for (const cat of cats) {
-      const key = cat || 'Uncategorized'
-      if (!map[key]) map[key] = []
-      map[key].push(app)
-    }
+const activeCategory = ref(null)
+const activeSource = ref(null)
+
+async function loadBrowse() {
+  try {
+    const result = await invoke('browse_discoverable')
+    sections.value = result || sections.value
+  } catch (e) {
+    console.error('browse_discoverable failed', e)
   }
+}
+
+onMounted(() => {
+  loadBrowse()
+})
+
+function sourceKey(source) {
+  if (!source) return ''
+  const s = String(source)
+  const idx = s.indexOf(':')
+  return idx >= 0 ? s.slice(idx + 1) : s
+}
+
+function sourceLabel(source) {
+  const key = sourceKey(source)
+  if (!key) return ''
+  return key.charAt(0).toUpperCase() + key.slice(1)
+}
+
+function displayCategoryName(cat) {
+  if (!cat || cat === 'Other') return 'Uncategorized'
+  return String(cat).replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function launchExec(app) {
+  if (app && app.launch && typeof app.launch.exec === 'string') return app.launch.exec
+  return ''
+}
+
+const categoriesWithCounts = computed(() => {
+  const counts = sections.value.category_counts || {}
+  return Object.keys(counts)
+    .filter((k) => k)
+    .sort()
+    .map((k) => ({ name: k, count: counts[k] || 0 }))
+})
+
+const sourcesWithCounts = computed(() => {
+  const counts = sections.value.source_counts || {}
+  const seen = new Map()
+  for (const raw of Object.keys(counts)) {
+    const key = sourceKey(raw)
+    if (!key) continue
+    if (!seen.has(key)) {
+      seen.set(key, { name: key, label: sourceLabel(raw), count: 0 })
+    }
+    seen.get(key).count += counts[raw] || 0
+  }
+  return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name))
+})
+
+const hasChips = computed(
+  () => categoriesWithCounts.value.length > 0 || sourcesWithCounts.value.length > 0,
+)
+
+const totalCount = computed(() =>
+  Object.values(sections.value.category_counts || {}).reduce((a, b) => a + b, 0),
+)
+
+function setCategory(name) {
+  activeCategory.value = activeCategory.value === name ? null : name
+  hovered.value = { category: null, index: 0 }
+}
+
+function setSource(name) {
+  activeSource.value = activeSource.value === name ? null : name
+  hovered.value = { category: null, index: 0 }
+}
+
+const filteredGrouped = computed(() => {
+  const map = sections.value.apps_by_category || {}
+  const out = {}
+  const q = localQuery.value.trim().toLowerCase()
+  const cat = activeCategory.value
+  const src = activeSource.value
+
   for (const key of Object.keys(map)) {
-    map[key].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    if (cat && key !== cat) continue
+    const bucket = (map[key] || []).filter((app) => {
+      if (src && sourceKey(app.source) !== src) return false
+      if (q) {
+        const haystack = `${app.name || ''} ${launchExec(app)}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    })
+    if (bucket.length > 0) out[key] = bucket
   }
-  const ordered = {}
-  for (const key of Object.keys(map).sort()) {
-    ordered[key] = map[key]
-  }
-  return ordered
+  return out
 })
 
 const flatList = computed(() => {
   const out = []
-  for (const cat of Object.keys(grouped.value)) {
-    grouped.value[cat].forEach((app, index) => out.push({ cat, index, app }))
+  for (const cat of Object.keys(filteredGrouped.value)) {
+    filteredGrouped.value[cat].forEach((app, index) => out.push({ cat, index, app }))
   }
   return out
+})
+
+const hoveredFlatIndex = computed(() => {
+  if (flatList.value.length === 0) return -1
+  const match = flatList.value.findIndex(
+    (e) => e.cat === hovered.value.category && e.index === hovered.value.index,
+  )
+  if (match >= 0) return match
+  return 0
 })
 
 function setHover(category, index) {
@@ -127,15 +272,6 @@ function isSelected(category, index) {
   const flatIdx = flatList.value.findIndex((e) => e.cat === category && e.index === index)
   return flatList.value[hoveredFlatIndex.value] && flatIdx === hoveredFlatIndex.value
 }
-
-const hoveredFlatIndex = computed(() => {
-  if (flatList.value.length === 0) return -1
-  const match = flatList.value.findIndex(
-    (e) => e.cat === hovered.value.category && e.index === hovered.value.index,
-  )
-  if (match >= 0) return match
-  return 0
-})
 
 function navigateResults(direction) {
   if (flatList.value.length === 0) return
@@ -155,9 +291,17 @@ async function activateSelected() {
 }
 
 async function launch(app) {
+  const exec = launchExec(app)
+  if (!exec) return
   try {
-    await invoke('launch_app', { execCmd: app.exec })
-    recordAction(app)
+    await invoke('launch_app', { execCmd: exec })
+    recordAction({
+      id: app.id,
+      name: app.name,
+      exec,
+      icon: app.icon || null,
+      source: sourceKey(app.source),
+    })
     await hideWindow()
   } catch (e) {
     console.error('Failed to launch app', e)
@@ -179,18 +323,6 @@ function iconForCategory(cat) {
   if (lower.includes('communication') || lower.includes('chat')) return 'mdi-chat-outline'
   if (lower.includes('file')) return 'mdi-folder-outline'
   return 'mdi-shape-outline'
-}
-
-function formatCategoryName(cat) {
-  if (!cat) return 'Uncategorized'
-  if (cat === 'Uncategorized') return cat
-  return String(cat).replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function sourceLabel(source) {
-  if (!source) return ''
-  const normalized = String(source).toLowerCase()
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
 watch(localQuery, () => {
@@ -267,6 +399,72 @@ watch(localQuery, () => {
 .back-btn:hover {
   background: rgba(255, 255, 255, 0.05);
   color: var(--theme-text);
+}
+
+.chip-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-6) var(--space-3);
+  border-bottom: 1px solid var(--theme-border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+}
+
+.chip-row-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--theme-text-dimmer);
+  font-weight: var(--font-weight-semibold);
+  flex-shrink: 0;
+  width: 56px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--theme-text);
+}
+
+.chip-active {
+  background: rgba(122, 162, 247, 0.18);
+  border-color: rgba(122, 162, 247, 0.45);
+  color: var(--theme-primary);
+}
+
+.chip-count {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0 6px;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+.chip-active .chip-count {
+  background: rgba(122, 162, 247, 0.25);
 }
 
 .main-content {
@@ -405,5 +603,11 @@ watch(localQuery, () => {
   background: rgba(122, 247, 162, 0.15);
   color: #7af7a2;
   border-color: rgba(122, 247, 162, 0.3);
+}
+
+.source-badge.source-desktop {
+  background: rgba(187, 154, 247, 0.15);
+  color: #bb9af7;
+  border-color: rgba(187, 154, 247, 0.3);
 }
 </style>
