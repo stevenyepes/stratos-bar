@@ -335,6 +335,118 @@ describe('useOmnibar – alias boost merge into scored apps', () => {
     })
 })
 
+describe('useOmnibar – set_app_aliases propagation through useAppIndex', () => {
+    beforeEach(() => {
+        invokeMock.mockReset()
+        listenMock.mockReset()
+        listenMock.mockImplementation(() => Promise.resolve(() => {}))
+        invokeMock.mockImplementation(() => Promise.resolve([]))
+        _resetOmnibarForTests()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('useAppIndex.setAppAlias invokes the set_app_aliases Tauri command with the user-supplied aliases', async () => {
+        const seen = []
+        invokeMock.mockImplementation((cmd, args) => {
+            if (cmd === 'set_app_aliases') {
+                seen.push(args)
+                return Promise.resolve(null)
+            }
+            return Promise.resolve([])
+        })
+
+        const { useAppIndex } = await import('../useAppIndex')
+        const ctx = useAppIndex()
+        await ctx.setAppAlias('google-chrome', ['browser', 'web'])
+        expect(seen.length).toBe(1)
+        expect(seen[0]).toEqual(
+            expect.objectContaining({ appId: 'google-chrome', aliases: ['browser', 'web'] }),
+        )
+    })
+
+    it('bulk_set_aliases through useAppIndex sends snake_case entries for every key', async () => {
+        const seen = []
+        invokeMock.mockImplementation((cmd, args) => {
+            if (cmd === 'bulk_set_aliases') {
+                seen.push(args)
+                return Promise.resolve(null)
+            }
+            return Promise.resolve([])
+        })
+
+        const { useAppIndex } = await import('../useAppIndex')
+        const ctx = useAppIndex()
+        await ctx.bulkSetAliases({
+            'google-chrome': ['browser'],
+            code: ['editor', 'ide'],
+        })
+        expect(seen.length).toBe(1)
+        expect(seen[0]).toEqual(
+            expect.objectContaining({
+                entries: expect.arrayContaining([
+                    expect.objectContaining({ app_id: 'google-chrome', aliases: ['browser'] }),
+                    expect.objectContaining({ app_id: 'code', aliases: ['editor', 'ide'] }),
+                ]),
+            }),
+        )
+    })
+
+    it('aliases-updated event payloads land in useAppIndex.aliasesByAppId (singleton)', async () => {
+        const listeners = {}
+        listenMock.mockImplementation((event, handler) => {
+            listeners[event] = handler
+            return Promise.resolve(() => {})
+        })
+
+        const { useAppIndex } = await import('../useAppIndex')
+        const ctx = useAppIndex()
+        await ctx.subscribeIndexUpdates()
+        expect(listeners['aliases-updated']).toBeDefined()
+
+        await listeners['aliases-updated']({
+            payload: { app_id: 'google-chrome', aliases: ['browser', 'web'] },
+        })
+        expect(ctx.aliasesByAppId.value['google-chrome']).toEqual(['browser', 'web'])
+
+        await listeners['aliases-updated']({
+            payload: {
+                entries: [
+                    { app_id: 'code', aliases: ['editor'] },
+                    { app_id: 'firefox', aliases: ['browser'] },
+                ],
+            },
+        })
+        expect(ctx.aliasesByAppId.value['code']).toEqual(['editor'])
+        expect(ctx.aliasesByAppId.value['firefox']).toEqual(['browser'])
+    })
+
+    it('useOmnibar.exposes its own aliasesByAppId that is fed by the same aliases-updated event useAppIndex listens to', async () => {
+        const handlers = {}
+        listenMock.mockImplementation((event, handler) => {
+            if (!handlers[event]) handlers[event] = []
+            handlers[event].push(handler)
+            return Promise.resolve(() => {})
+        })
+
+        const { useAppIndex } = await import('../useAppIndex')
+        const appIndexCtx = useAppIndex()
+        const omnibarCtx = useOmnibar()
+
+        await appIndexCtx.subscribeIndexUpdates()
+        await omnibarCtx.subscribeAppUpdates()
+
+        for (const handler of handlers['aliases-updated'] || []) {
+            await handler({ payload: { app_id: 'chrome', aliases: ['browser', 'web'] } })
+        }
+
+        expect(appIndexCtx.aliasesByAppId.value['chrome']).toEqual(['browser', 'web'])
+        expect(omnibarCtx.aliasesByAppId.value['chrome']).toEqual(['browser', 'web'])
+    })
+})
+
 describe('useOmnibar – kind filter chips', () => {
     beforeEach(() => {
         invokeMock.mockReset()

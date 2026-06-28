@@ -344,81 +344,7 @@
 
                 <!-- Aliases Editor -->
                 <div v-if="activeTab === 'aliases'" key="aliases">
-                  <div class="d-flex align-center mb-4">
-                     <div class="section-title">App Aliases</div>
-                    <v-spacer></v-spacer>
-                    <v-text-field
-                      v-model="aliasFilter"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      placeholder="Filter apps..."
-                      prepend-inner-icon="mdi-magnify"
-                      style="max-width: 280px;"
-                      class="custom-input"
-                    ></v-text-field>
-                  </div>
-
-                  <div class="text-caption text-medium-emphasis mb-4">
-                    Aliases let you launch apps with custom shortcuts. Use letters, digits, spaces, dots, hyphens, or underscores (1–32 characters).
-                  </div>
-
-                  <div v-if="filteredAppRows.length === 0" class="d-flex flex-column align-center justify-center py-12 text-medium-emphasis">
-                      <v-icon icon="mdi-alias" size="64" class="mb-4 opacity-50"></v-icon>
-                      <div class="text-h6 font-weight-regular">No apps match</div>
-                      <div class="text-caption">Adjust your filter to see more apps.</div>
-                  </div>
-
-                  <div class="aliases-list custom-scrollbar">
-                    <v-card
-                      v-for="row in filteredAppRows"
-                      :key="row.id"
-                      class="alias-row border-thin mb-2"
-                      flat
-                    >
-                      <div class="d-flex align-center pa-3">
-                        <v-avatar color="primary" variant="tonal" rounded size="32" class="mr-3">
-                          <img v-if="row.icon" :src="convertFileSrc(row.icon)" width="22" height="22" />
-                          <v-icon v-else icon="mdi-application" size="18"></v-icon>
-                        </v-avatar>
-                        <div class="flex-grow-1" style="min-width: 0;">
-                          <div class="text-body-2 font-weight-bold text-truncate">{{ row.name }}</div>
-                          <div class="text-caption text-medium-emphasis text-truncate font-mono">{{ row.exec }}</div>
-                        </div>
-                        <div class="d-flex flex-wrap align-center justify-end" style="max-width: 60%; gap: 6px;">
-                          <v-chip
-                            v-for="(alias, idx) in row.aliases"
-                            :key="alias + idx"
-                            size="small"
-                            variant="flat"
-                            closable
-                            class="bg-surface-light"
-                            @click:close="removeAliasFromApp(row, alias)"
-                          >{{ alias }}</v-chip>
-                          <v-text-field
-                            v-model="row.newAlias"
-                            density="compact"
-                            variant="outlined"
-                            hide-details
-                            placeholder="add alias"
-                            style="max-width: 140px;"
-                            class="custom-input alias-input"
-                            :error="!!row.aliasError"
-                            :error-messages="row.aliasError"
-                            @keydown.enter.prevent="commitAlias(row)"
-                          ></v-text-field>
-                          <v-btn
-                            size="x-small"
-                            variant="tonal"
-                            color="primary"
-                            class="text-none"
-                            :disabled="!row.newAlias || !!row.aliasError"
-                            @click="commitAlias(row)"
-                          >Add</v-btn>
-                        </div>
-                      </div>
-                    </v-card>
-                  </div>
+                  <SettingsAliases :apps="props.apps || []" />
                 </div>
 
                 <!-- Scripts Editor -->
@@ -612,17 +538,16 @@
 
 <script setup>
 import { ref, watch, onMounted, computed } from 'vue'
-import { invoke, convertFileSrc } from '@tauri-apps/api/core'
+import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { themePresets, applyTheme } from '../theme'
 import { useTheme } from 'vuetify'
 import { MatugenSkill } from '../skills/builtin/MatugenSkill'
 import { useOmnibar } from '../composables/useOmnibar'
-
-const ALIAS_REGEX = /^[\w .\-]{1,32}$/
+import SettingsAliases from './SettingsAliases.vue'
 
 const vTheme = useTheme()
-const { clearActions, aliasesByAppId, setAlias, removeAlias, listAliases } = useOmnibar()
+const { clearActions } = useOmnibar()
 
 async function handleClearHistory() {
     if (confirm('Are you sure you want to clear your recent action history?')) {
@@ -1022,105 +947,6 @@ async function addCustomDir() {
 async function removeCustomDir(index) {
     config.value.custom_app_dirs.splice(index, 1)
     await invoke('set_custom_app_dirs', { paths: config.value.custom_app_dirs })
-}
-
-// Aliases editor
-const aliasFilter = ref('')
-
-function validateAliasText(value) {
-    if (!value) return ''
-    if (!ALIAS_REGEX.test(value)) {
-        return 'Use letters, digits, spaces, dots, hyphens, or underscores (1–32 chars).'
-    }
-    return ''
-}
-
-const aliasRows = computed(() => {
-    const list = props.apps || []
-    const aliasMap = aliasesByAppId.value || {}
-    return list.map((app) => {
-        const explicit = Array.isArray(app.aliases) ? app.aliases : []
-        const fromStore = aliasMap[app.id] || aliasMap[app.exec] || []
-        const merged = explicit.length ? explicit : fromStore
-        return {
-            id: app.id,
-            name: app.name,
-            exec: app.exec,
-            icon: app.icon,
-            aliases: [...merged],
-            newAlias: '',
-            aliasError: '',
-        }
-    })
-})
-
-const filteredAppRows = computed(() => {
-    const q = aliasFilter.value.trim().toLowerCase()
-    if (!q) return aliasRows.value
-    return aliasRows.value.filter((row) => {
-        const haystack = `${row.name || ''} ${row.exec || ''} ${(row.aliases || []).join(' ')}`.toLowerCase()
-        return haystack.includes(q)
-    })
-})
-
-watch(filteredAppRows, (rows) => {
-    for (const row of rows) {
-        if (row.newAlias) {
-            row.aliasError = validateAliasText(row.newAlias)
-        } else {
-            row.aliasError = ''
-        }
-    }
-}, { deep: true })
-
-async function ensureAliasesLoaded() {
-    if (Object.keys(aliasesByAppId.value || {}).length === 0) {
-        try {
-            await listAliases()
-        } catch (e) {
-            console.error('Failed to load aliases', e)
-        }
-    }
-}
-
-watch(() => activeTab.value, (tab) => {
-    if (tab === 'aliases') ensureAliasesLoaded()
-})
-
-async function commitAlias(row) {
-    const value = (row.newAlias || '').trim()
-    const error = validateAliasText(value)
-    if (error) {
-        row.aliasError = error
-        return
-    }
-    if (row.aliases.includes(value)) {
-        row.aliasError = 'Already set'
-        return
-    }
-    try {
-        await setAlias(row.id, [...row.aliases, value])
-        row.aliases = [...row.aliases, value]
-        row.newAlias = ''
-        row.aliasError = ''
-        showSaved.value = true
-        if (saveTimeout) clearTimeout(saveTimeout)
-        saveTimeout = setTimeout(() => (showSaved.value = false), 2000)
-    } catch (e) {
-        row.aliasError = String(e)
-    }
-}
-
-async function removeAliasFromApp(row, alias) {
-    try {
-        await removeAlias(row.id, alias)
-        row.aliases = row.aliases.filter((a) => a !== alias)
-        showSaved.value = true
-        if (saveTimeout) clearTimeout(saveTimeout)
-        saveTimeout = setTimeout(() => (showSaved.value = false), 2000)
-    } catch (e) {
-        console.error('Failed to remove alias', e)
-    }
 }
 
 </script>

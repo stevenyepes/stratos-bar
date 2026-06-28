@@ -45,6 +45,21 @@
       </button>
     </div>
 
+    <!-- Category Filter Bar (Development / Internet / etc.) -->
+    <CategoryFilterBar
+      v-if="categoryOptions.length > 0"
+      :options="categoryOptions"
+      :active="activeCategory"
+      @select="onCategorySelect"
+    />
+
+    <!-- Top Apps rail (Raycast-style idle suggestions) -->
+    <TopAppsRail
+      v-if="!query"
+      :top-apps="topApps"
+      @launch="onTopAppLaunch"
+    />
+
     <!-- Main Content Area -->
     <div class="main-content">
         <!-- Results Column -->
@@ -90,31 +105,6 @@
                      <div class="result-subtitle text-dim">{{ action.content }}</div>
                    </div>
                    <div class="result-hint text-dimmer" v-if="selectedIndex === (index + 1)">[↵]</div>
-                 </div>
-            </div>
-
-            <!-- Top Apps rail (Raycast-style idle suggestions) -->
-            <div v-if="!query && topApps.length > 0" class="results-section">
-                 <div class="section-header d-flex align-center justify-space-between">
-                    <span>TOP APPS</span>
-                    <span class="text-dimmer text-caption">Most used</span>
-                 </div>
-                 <div
-                   v-for="(app, index) in topApps"
-                   :key="'top-' + app.id"
-                   class="result-item glass-hover interactive top-app-item"
-                   :class="{'result-item-active': selectedIndex === (recentActions.length + 1 + index)}"
-                   @click="executeAction(recentActions.length + 1 + index)"
-                 >
-                   <div class="result-icon">
-                       <img v-if="app.icon" :src="convertFileSrc(app.icon)" width="24" height="24" />
-                       <span v-else>📦</span>
-                   </div>
-                   <div class="result-content">
-                     <div class="result-title">{{ app.name }}</div>
-                     <div class="result-subtitle text-dim">{{ app.exec }}</div>
-                   </div>
-                   <span class="source-badge" :class="`source-${app.source}`">{{ sourceLabel(app.source) }}</span>
                  </div>
             </div>
 
@@ -183,10 +173,10 @@
               </div>
 
               <!-- Applications -->
-              <div v-if="filteredApps.length" class="results-section">
+              <div v-if="appsByCategory.length" class="results-section">
                 <div class="section-header">APPLICATIONS</div>
                 <div
-                  v-for="(app, index) in filteredApps"
+                  v-for="(app, index) in appsByCategory"
                   :key="'app-'+index"
                   class="result-item glass-hover interactive"
                   :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + index)}"
@@ -259,8 +249,21 @@
         </div>
     </div>
 
+    <!-- Launch error toast (visible whenever a launch error is set) -->
+    <div
+      v-if="launchError"
+      class="footer footer-launch-error"
+      data-testid="launch-error"
+    >
+      <span class="footer-error text-caption text-error">{{ launchError }}</span>
+      <button class="footer-btn interactive" @click="showSettings = true">
+        <span>⚙️</span>
+        <span class="text-dimmer">[Ctrl+,]</span>
+      </button>
+    </div>
+
     <!-- Footer with settings -->
-    <div v-if="uiState === 'searching'" class="footer">
+    <div v-if="uiState === 'searching' && !launchError" class="footer">
       <button class="footer-btn interactive" @click="showSettings = true">
         <span>⚙️</span>
         <span class="text-dimmer">[Ctrl+,]</span>
@@ -270,9 +273,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import CurrencyResult from '../CurrencyResult.vue'
+import TopAppsRail from '../TopAppsRail.vue'
+import CategoryFilterBar from '../CategoryFilterBar.vue'
 import { useOmnibar } from '../../composables/useOmnibar'
 import { useAI } from '../../composables/useAI'
 import { useScriptRunner } from '../../composables/useScriptRunner'
@@ -285,9 +290,53 @@ const {
   focusWindow, hideWindow,
   recentActions, recordAction, clearActions,
   topApps, scoredApps,
+  apps,
   kindFilter, KIND_FILTER_OPTIONS,
   setKindFilter, isKindFilterActive,
 } = useOmnibar()
+
+const activeCategory = ref('')
+const launchError = ref('')
+
+const categoryOptions = computed(() => {
+  const counts = new Map()
+  const list = Array.isArray(apps.value) ? apps.value : []
+  for (const app of list) {
+    const cats = Array.isArray(app && app.categories) ? app.categories : []
+    for (const raw of cats) {
+      if (typeof raw !== 'string') continue
+      const key = raw.trim().toLowerCase()
+      if (!key) continue
+      counts.set(key, (counts.get(key) || 0) + 1)
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+    .map(([id, count]) => ({
+      id,
+      label: id.charAt(0).toUpperCase() + id.slice(1),
+      count,
+    }))
+})
+
+const appsByCategory = computed(() => {
+  if (!activeCategory.value) return filteredApps.value
+  const target = activeCategory.value.toLowerCase()
+  return filteredApps.value.filter((app) => {
+    if (!app) return false
+    const cats = Array.isArray(app.categories) ? app.categories : []
+    return cats.some((c) => typeof c === 'string' && c.toLowerCase() === target)
+  })
+})
+
+function onCategorySelect(categoryId) {
+  activeCategory.value = categoryId || ''
+}
+
+async function onTopAppLaunch(app) {
+  await executeApp(app)
+}
 
 const { askAI, executeAiTool, executeSkill } = useAI()
 const { executeScript } = useScriptRunner()
@@ -338,7 +387,7 @@ const totalItems = computed(() => {
   if (isDefaultState.value) {
       return 1 + (recentActions.value ? recentActions.value.length : 0) + (topApps.value ? topApps.value.length : 0)
   }
-  return 1 + filteredWindows.value.length + filteredApps.value.length + filteredScripts.value.length + files.value.length
+  return 1 + filteredWindows.value.length + appsByCategory.value.length + filteredScripts.value.length + files.value.length
 })
 
 const topSectionHeader = computed(() => {
@@ -416,11 +465,11 @@ async function executeAction(index) {
   }
   currentIndex += filteredWindows.value.length
 
-  if (index < currentIndex + filteredApps.value.length) {
-    await executeApp(filteredApps.value[index - currentIndex])
+  if (index < currentIndex + appsByCategory.value.length) {
+    await executeApp(appsByCategory.value[index - currentIndex])
     return
   }
-  currentIndex += filteredApps.value.length
+  currentIndex += appsByCategory.value.length
   
   if (index < currentIndex + filteredScripts.value.length) {
     await executeScript(filteredScripts.value[index - currentIndex])
@@ -435,6 +484,7 @@ async function executeAction(index) {
 }
 
 async function executeApp(app) {
+  launchError.value = ''
   try {
     await invoke('launch_app', { execCmd: app.exec })
     recordAction(app)
@@ -442,6 +492,7 @@ async function executeApp(app) {
     await hideWindow()
   } catch(e) {
     console.error('Failed to launch app', e)
+    launchError.value = typeof e === 'string' ? e : (e && e.message) ? e.message : String(e)
   }
 }
 
@@ -693,7 +744,15 @@ function getFileColor(path) {
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--theme-border);
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.footer-error {
+  margin-right: auto;
+  font-weight: var(--font-weight-medium);
+  opacity: 0.9;
 }
 
 .footer-btn {
