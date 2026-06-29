@@ -342,6 +342,11 @@
                   </v-card>
                 </div>
 
+                <!-- Aliases Editor -->
+                <div v-if="activeTab === 'aliases'" key="aliases">
+                  <SettingsAliases :apps="props.apps || []" />
+                </div>
+
                 <!-- Scripts Editor -->
                 <div v-if="activeTab === 'scripts'" key="scripts">
                   <div class="d-flex align-center mb-4">
@@ -539,6 +544,7 @@ import { themePresets, applyTheme } from '../theme'
 import { useTheme } from 'vuetify'
 import { MatugenSkill } from '../skills/builtin/MatugenSkill'
 import { useOmnibar } from '../composables/useOmnibar'
+import SettingsAliases from './SettingsAliases.vue'
 
 const vTheme = useTheme()
 const { clearActions } = useOmnibar()
@@ -559,6 +565,7 @@ const menuItems = [
   { title: 'General & AI', value: 'general', icon: 'mdi-cog-outline' },
   { title: 'Appearance', value: 'appearance', icon: 'mdi-palette-outline' },
   { title: 'AI Tools', value: 'tools', icon: 'mdi-robot-outline' },
+  { title: 'Aliases', value: 'aliases', icon: 'mdi-alias' },
   { title: 'Scripts', value: 'scripts', icon: 'mdi-console-line' },
   { title: 'Shortcuts', value: 'shortcuts', icon: 'mdi-keyboard-outline' }
 ]
@@ -1229,5 +1236,26 @@ async function removeCustomDir(index) {
 .color-picker-grid {
     display: flex;
     flex-direction: column;
+}
+
+.aliases-list {
+  max-height: calc(100vh - 360px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.alias-row {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.alias-input :deep(.v-field) {
+  min-height: 36px;
+  padding: 0;
+}
+
+.alias-input :deep(.v-field__input) {
+  min-height: 32px;
+  font-size: 12px;
 }
 </style>

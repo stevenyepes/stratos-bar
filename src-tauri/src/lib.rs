@@ -90,6 +90,7 @@ pub fn run() {
             commands::apps::rescan_apps,
             commands::apps::set_custom_app_dirs,
             commands::apps::launch_app,
+            commands::apps::search_apps,
             commands::config::get_config,
             commands::config::save_config,
             commands::ai::ask_ai,
@@ -103,10 +104,88 @@ pub fn run() {
             commands::windows::resize_window,
             commands::system::generate_video_thumbnail,
             commands::history::get_recent_actions,
+            commands::history::get_top_frecency,
             commands::history::record_action,
             commands::history::clear_history,
             commands::translation::translate,
+            commands::discover::search_discoverable,
+            commands::discover::warm_discover_index_command,
+            commands::discover::browse_discoverable,
+            commands::app_index::set_app_aliases,
+            commands::app_index::bulk_set_aliases,
+            commands::app_index::set_disabled_sources,
+            commands::app_index::get_app_index_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::commands;
+
+    #[test]
+    fn search_apps_command_is_exported() {
+        let _f = commands::apps::search_apps;
+    }
+
+    #[test]
+    fn get_top_frecency_command_is_exported() {
+        let _f = commands::history::get_top_frecency;
+    }
+
+    #[test]
+    fn launch_app_command_is_exported() {
+        let _f = commands::apps::launch_app;
+    }
+
+    #[test]
+    fn list_apps_command_is_exported() {
+        let _f = commands::apps::list_apps;
+    }
+
+    #[test]
+    fn get_config_command_is_exported() {
+        let _f = commands::config::get_config;
+    }
+
+    #[test]
+    fn save_config_command_is_exported() {
+        let _f = commands::config::save_config;
+    }
+
+    #[test]
+    fn search_discoverable_command_is_exported() {
+        let _f = commands::discover::search_discoverable;
+    }
+
+    #[test]
+    fn warm_discover_index_command_is_exported() {
+        let _f = commands::discover::warm_discover_index_command;
+    }
+
+    #[test]
+    fn browse_discoverable_command_is_exported() {
+        let _f = commands::discover::browse_discoverable;
+    }
+
+    #[test]
+    fn set_app_aliases_command_is_exported() {
+        let _f = commands::app_index::set_app_aliases;
+    }
+
+    #[test]
+    fn bulk_set_aliases_command_is_exported() {
+        let _f = commands::app_index::bulk_set_aliases;
+    }
+
+    #[test]
+    fn set_disabled_sources_command_is_exported() {
+        let _f = commands::app_index::set_disabled_sources;
+    }
+
+    #[test]
+    fn get_app_index_status_command_is_exported() {
+        let _f = commands::app_index::get_app_index_status;
+    }
 }

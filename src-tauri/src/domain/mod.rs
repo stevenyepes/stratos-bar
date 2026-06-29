@@ -1,7 +1,8 @@
+pub mod action;
 pub mod ai;
+pub mod app_index;
 pub mod apps;
 pub mod config;
-pub mod windows;
-// Future domains: ai, etc.
-pub mod action;
+pub mod discover;
 pub mod translation;
+pub mod windows;

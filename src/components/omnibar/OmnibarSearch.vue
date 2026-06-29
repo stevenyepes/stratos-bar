@@ -17,8 +17,48 @@
         @keydown.enter.prevent="executeAction(selectedIndex)"
         @keydown.esc.stop="handleEsc"
         @keydown.ctrl.n.prevent="askAI"
+        @keydown.ctrl.0.prevent="handleKindShortcut('all')"
+        @keydown.ctrl.1.prevent="handleKindShortcut('apps')"
+        @keydown.ctrl.2.prevent="handleKindShortcut('scripts')"
+        @keydown.ctrl.3.prevent="handleKindShortcut('files')"
+        @keydown.ctrl.4.prevent="handleKindShortcut('recent')"
       />
     </div>
+
+    <!-- Kind Filter Chips -->
+    <div
+      v-if="query && kindFilterOptions.length > 0"
+      class="kind-filter-row custom-scrollbar"
+      data-testid="kind-filter-row"
+    >
+      <button
+        v-for="option in kindFilterOptions"
+        :key="option.id"
+        type="button"
+        class="kind-chip interactive"
+        :class="{ 'kind-chip-active': isKindFilterActive(option.id) }"
+        :data-testid="`kind-chip-${option.id}`"
+        @click="setKindFilter(option.id)"
+      >
+        <span class="kind-chip-label">{{ option.label }}</span>
+        <span v-if="shortcutFor(option.id)" class="kind-chip-hint text-dimmer">[{{ shortcutFor(option.id) }}]</span>
+      </button>
+    </div>
+
+    <!-- Category Filter Bar (Development / Internet / etc.) -->
+    <CategoryFilterBar
+      v-if="categoryOptions.length > 0"
+      :options="categoryOptions"
+      :active="activeCategory"
+      @select="onCategorySelect"
+    />
+
+    <!-- Top Apps rail (Raycast-style idle suggestions) -->
+    <TopAppsRail
+      v-if="!query"
+      :top-apps="topApps"
+      @launch="onTopAppLaunch"
+    />
 
     <!-- Main Content Area -->
     <div class="main-content">
@@ -46,7 +86,7 @@
                     <span>RECENT ACTIONS</span>
                     <button class="clear-btn" @click.stop="handleClear">CLEAR</button>
                  </div>
-                 <div 
+                 <div
                    v-for="(action, index) in recentActions"
                    :key="action.id"
                    class="result-item glass-hover interactive"
@@ -133,10 +173,10 @@
               </div>
 
               <!-- Applications -->
-              <div v-if="filteredApps.length" class="results-section">
+              <div v-if="appsByCategory.length" class="results-section">
                 <div class="section-header">APPLICATIONS</div>
                 <div
-                  v-for="(app, index) in filteredApps"
+                  v-for="(app, index) in appsByCategory"
                   :key="'app-'+index"
                   class="result-item glass-hover interactive"
                   :class="{'result-item-active': selectedIndex === (1 + filteredWindows.length + index)}"
@@ -150,6 +190,8 @@
                     <div class="result-title" v-html="highlightMatch(app.name)"></div>
                     <div class="result-subtitle text-dim">{{ app.exec }}</div>
                   </div>
+                  <span class="source-badge" :class="`source-${app.source}`">{{ sourceLabel(app.source) }}</span>
+                  <span v-if="appScoreFor(app) !== null" class="score-hint text-dimmer">{{ formatScore(appScoreFor(app)) }}</span>
                 </div>
               </div>
 
@@ -207,8 +249,21 @@
         </div>
     </div>
 
+    <!-- Launch error toast (visible whenever a launch error is set) -->
+    <div
+      v-if="launchError"
+      class="footer footer-launch-error"
+      data-testid="launch-error"
+    >
+      <span class="footer-error text-caption text-error">{{ launchError }}</span>
+      <button class="footer-btn interactive" @click="showSettings = true">
+        <span>⚙️</span>
+        <span class="text-dimmer">[Ctrl+,]</span>
+      </button>
+    </div>
+
     <!-- Footer with settings -->
-    <div v-if="uiState === 'searching'" class="footer">
+    <div v-if="uiState === 'searching' && !launchError" class="footer">
       <button class="footer-btn interactive" @click="showSettings = true">
         <span>⚙️</span>
         <span class="text-dimmer">[Ctrl+,]</span>
@@ -218,21 +273,70 @@
 </template>
 
 <script setup>
-import { computed, nextTick } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import CurrencyResult from '../CurrencyResult.vue'
+import TopAppsRail from '../TopAppsRail.vue'
+import CategoryFilterBar from '../CategoryFilterBar.vue'
 import { useOmnibar } from '../../composables/useOmnibar'
 import { useAI } from '../../composables/useAI'
 import { useScriptRunner } from '../../composables/useScriptRunner'
 
 const emit = defineEmits(['close'])
 
-const { 
+const {
   uiState, query, searchInput, selectedIndex, showSettings,
   matchedTool, filteredWindows, filteredApps, filteredScripts, files,
   focusWindow, hideWindow,
-  recentActions, recordAction, clearActions
+  recentActions, recordAction, clearActions,
+  topApps, scoredApps,
+  apps,
+  kindFilter, KIND_FILTER_OPTIONS,
+  setKindFilter, isKindFilterActive,
 } = useOmnibar()
+
+const activeCategory = ref('')
+const launchError = ref('')
+
+const categoryOptions = computed(() => {
+  const counts = new Map()
+  const list = Array.isArray(apps.value) ? apps.value : []
+  for (const app of list) {
+    const cats = Array.isArray(app && app.categories) ? app.categories : []
+    for (const raw of cats) {
+      if (typeof raw !== 'string') continue
+      const key = raw.trim().toLowerCase()
+      if (!key) continue
+      counts.set(key, (counts.get(key) || 0) + 1)
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+    .map(([id, count]) => ({
+      id,
+      label: id.charAt(0).toUpperCase() + id.slice(1),
+      count,
+    }))
+})
+
+const appsByCategory = computed(() => {
+  if (!activeCategory.value) return filteredApps.value
+  const target = activeCategory.value.toLowerCase()
+  return filteredApps.value.filter((app) => {
+    if (!app) return false
+    const cats = Array.isArray(app.categories) ? app.categories : []
+    return cats.some((c) => typeof c === 'string' && c.toLowerCase() === target)
+  })
+})
+
+function onCategorySelect(categoryId) {
+  activeCategory.value = categoryId || ''
+}
+
+async function onTopAppLaunch(app) {
+  await executeApp(app)
+}
 
 const { askAI, executeAiTool, executeSkill } = useAI()
 const { executeScript } = useScriptRunner()
@@ -253,6 +357,24 @@ function handleEsc() {
   }
 }
 
+const KIND_SHORTCUTS = {
+  all: 'Ctrl+0',
+  apps: 'Ctrl+1',
+  scripts: 'Ctrl+2',
+  files: 'Ctrl+3',
+  recent: 'Ctrl+4',
+}
+
+const kindFilterOptions = KIND_FILTER_OPTIONS
+
+function shortcutFor(optionId) {
+  return KIND_SHORTCUTS[optionId] || ''
+}
+
+function handleKindShortcut(kindId) {
+  setKindFilter(kindId)
+}
+
 
 const isFileSearchMode = computed(() => {
   return query.value && query.value.trim().toLowerCase().startsWith('ff ')
@@ -263,9 +385,9 @@ const isDefaultState = computed(() => !query.value)
 
 const totalItems = computed(() => {
   if (isDefaultState.value) {
-      return 1 + (recentActions.value ? recentActions.value.length : 0)
+      return 1 + (recentActions.value ? recentActions.value.length : 0) + (topApps.value ? topApps.value.length : 0)
   }
-  return 1 + filteredWindows.value.length + filteredApps.value.length + filteredScripts.value.length + files.value.length
+  return 1 + filteredWindows.value.length + appsByCategory.value.length + filteredScripts.value.length + files.value.length
 })
 
 const topSectionHeader = computed(() => {
@@ -343,11 +465,11 @@ async function executeAction(index) {
   }
   currentIndex += filteredWindows.value.length
 
-  if (index < currentIndex + filteredApps.value.length) {
-    await executeApp(filteredApps.value[index - currentIndex])
+  if (index < currentIndex + appsByCategory.value.length) {
+    await executeApp(appsByCategory.value[index - currentIndex])
     return
   }
-  currentIndex += filteredApps.value.length
+  currentIndex += appsByCategory.value.length
   
   if (index < currentIndex + filteredScripts.value.length) {
     await executeScript(filteredScripts.value[index - currentIndex])
@@ -362,6 +484,7 @@ async function executeAction(index) {
 }
 
 async function executeApp(app) {
+  launchError.value = ''
   try {
     await invoke('launch_app', { execCmd: app.exec })
     recordAction(app)
@@ -369,6 +492,7 @@ async function executeApp(app) {
     await hideWindow()
   } catch(e) {
     console.error('Failed to launch app', e)
+    launchError.value = typeof e === 'string' ? e : (e && e.message) ? e.message : String(e)
   }
 }
 
@@ -417,9 +541,27 @@ function highlightMatch(text) {
   let q = query.value
   if (isFileSearchMode.value) q = q.substring(3).trim()
   if (!q) return text
-  
+
   const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
   return text.replace(regex, '<span class="text-gradient">$1</span>')
+}
+
+function sourceLabel(source) {
+  if (!source) return ''
+  const normalized = String(source).toLowerCase()
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function appScoreFor(app) {
+  if (!app || !scoredApps.value) return null
+  const match = scoredApps.value.find((s) => s && s.app && s.app.id === app.id)
+  return match ? match.score : null
+}
+
+function formatScore(score) {
+  if (score === null || score === undefined) return ''
+  if (typeof score !== 'number') return ''
+  return score.toFixed(2)
 }
 
 function getFileIcon(path) {
@@ -602,7 +744,15 @@ function getFileColor(path) {
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--theme-border);
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.footer-error {
+  margin-right: auto;
+  font-weight: var(--font-weight-medium);
+  opacity: 0.9;
 }
 
 .footer-btn {
@@ -646,5 +796,110 @@ function getFileColor(path) {
   opacity: 1;
   background: rgba(255, 50, 50, 0.1);
   color: #fca5a5;
+}
+
+.source-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--theme-text-dim, rgba(255, 255, 255, 0.7));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.source-badge.source-flatpak {
+  background: rgba(122, 162, 247, 0.15);
+  color: #7aa2f7;
+  border-color: rgba(122, 162, 247, 0.3);
+}
+
+.source-badge.source-snap {
+  background: rgba(247, 122, 162, 0.15);
+  color: #f77aa2;
+  border-color: rgba(247, 122, 162, 0.3);
+}
+
+.source-badge.source-appimage {
+  background: rgba(247, 200, 122, 0.15);
+  color: #f7c87a;
+  border-color: rgba(247, 200, 122, 0.3);
+}
+
+.source-badge.source-nix {
+  background: rgba(122, 247, 162, 0.15);
+  color: #7af7a2;
+  border-color: rgba(122, 247, 162, 0.3);
+}
+
+.score-hint {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.top-app-item {
+  border-left: 2px solid rgba(122, 162, 247, 0.2);
+}
+
+.kind-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-6) var(--space-2);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.kind-filter-row::-webkit-scrollbar {
+  display: none;
+}
+
+.kind-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px var(--space-3);
+  border-radius: 999px;
+  border: 1px solid var(--theme-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--theme-text-dim);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.kind-chip:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--theme-text);
+}
+
+.kind-chip-active {
+  background: rgba(122, 162, 247, 0.2);
+  border-color: rgba(122, 162, 247, 0.5);
+  color: var(--theme-primary);
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.2);
+}
+
+.kind-chip-label {
+  font-size: var(--font-size-xs);
+}
+
+.kind-chip-hint {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  opacity: 0.7;
 }
 </style>
