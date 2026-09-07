@@ -19,8 +19,15 @@ sha256sums=('SKIP')
 pkgver() {
     cd "$srcdir/$pkgname"
     # Prefer git tag (v0.1.2), fall back to package.json if HEAD has no tag.
-    git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' \
-        || node -p "require('./package.json').version"
+    # Assign first: in a pipeline the exit status is sed's, so `||` would never
+    # fire and pkgver would silently come out empty.
+    local tag
+    tag=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+    if [ -n "$tag" ]; then
+        printf '%s\n' "$tag"
+    else
+        node -p "require('./package.json').version"
+    fi
 }
 
 prepare() {

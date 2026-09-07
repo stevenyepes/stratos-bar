@@ -24,6 +24,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # PKGBUILD's pkgver() runs `git describe --tags` against a clone of
+          # this checkout; a shallow one carries no tags.
+          fetch-depth: 0
 
       - name: Install build dependencies
         run: |
@@ -32,13 +36,22 @@ jobs:
             webkit2gtk-4.1 gtk3 libappindicator-gtk3 openssl \
             gst-plugins-base-libs gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav
 
+      - name: Create build user
+        run: |
+          # makepkg refuses to run as root; the container has no other user.
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          # actions/checkout ran as root, so hand the tree to builder for
+          # makepkg's src/ and pkg/ dirs and to keep git happy about ownership.
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
       - name: Build
         working-directory: pkg/arch
-        run: makepkg -sf --noconfirm
+        run: sudo -H -u builder makepkg -sf --noconfirm
 
       - name: Run check() (tests)
         working-directory: pkg/arch
-        run: makepkg -sf --check --noextract --noprepare --noconfirm
+        run: sudo -H -u builder makepkg -sf --check --noextract --noprepare --noconfirm
 
       - name: Inspect package contents
         working-directory: pkg/arch
