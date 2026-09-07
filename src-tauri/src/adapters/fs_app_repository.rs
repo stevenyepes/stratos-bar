@@ -229,11 +229,7 @@ impl FsAppRepository {
         }
         let exec = clean_exec(&exec_raw);
 
-        let id = entry
-            .path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| entry.id().to_string());
+        let id = entry.id().to_string();
 
         let icon = entry
             .icon()
@@ -526,6 +522,50 @@ mod tests {
         for app in by_id.values() {
             assert_eq!(app.source, AppSource::AppImage);
         }
+    }
+
+    #[test]
+    fn test_parse_entry_nested_subdir_id_is_desktop_file_id() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        let subdir = apps_dir.join("kde4");
+        std::fs::create_dir_all(&subdir).unwrap();
+        write_desktop(
+            &subdir,
+            "foo",
+            "[Desktop Entry]\nName=Foo\nExec=foo\nType=Application\n",
+        );
+
+        let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
+        let apps = repo.list_apps().unwrap();
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].id, "kde4-foo");
+    }
+
+    #[test]
+    fn test_scan_keeps_distinct_ids_for_same_basename_in_different_dirs() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir_all(&apps_dir).unwrap();
+        write_desktop(
+            &apps_dir,
+            "foo",
+            "[Desktop Entry]\nName=Foo Root\nExec=foo-root\nType=Application\n",
+        );
+        let subdir = apps_dir.join("kde4");
+        std::fs::create_dir_all(&subdir).unwrap();
+        write_desktop(
+            &subdir,
+            "foo",
+            "[Desktop Entry]\nName=Foo Nested\nExec=foo-nested\nType=Application\n",
+        );
+
+        let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
+        let apps = repo.scan().unwrap();
+        assert_eq!(apps.len(), 2);
+        let ids: std::collections::HashSet<String> = apps.iter().map(|a| a.id.clone()).collect();
+        assert!(ids.contains("foo"));
+        assert!(ids.contains("kde4-foo"));
     }
 
     #[test]

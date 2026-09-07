@@ -13,6 +13,8 @@ use adapters::fs_config_service::FsConfigService;
 use adapters::google_translation_service::GoogleTranslationService;
 use adapters::http_ai_service::HttpAiService;
 use adapters::linux_window_service::LinuxWindowService;
+use ports::app_port::AppRepository;
+use ports::history::HistoryRepository;
 use state::AppState;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,8 +56,32 @@ pub fn run() {
                 config_service: config_service.clone(),
                 icon_resolver: icon_resolver.clone(),
                 ai_service,
-                history_repository,
+                history_repository: history_repository.clone(),
                 translation_service,
+            });
+
+            // Rekey history entries from exec-derived ids to desktop-file ids.
+            // Fire-and-forget: must not block setup() or delay start_background_tasks().
+            let history_repository_for_rekey = history_repository;
+            let app_repository_for_rekey = app_repository.clone();
+            tauri::async_runtime::spawn(async move {
+                let list_apps_result =
+                    tauri::async_runtime::spawn_blocking(move || app_repository_for_rekey.list_apps())
+                        .await;
+                let mapping: std::collections::HashMap<String, String> = match list_apps_result {
+                    Ok(Ok(apps)) => apps.into_iter().map(|app| (app.exec, app.id)).collect(),
+                    Ok(Err(e)) => {
+                        eprintln!("[stratos-bar] failed to list apps for history rekey: {e}");
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("[stratos-bar] list apps task for history rekey panicked: {e}");
+                        return;
+                    }
+                };
+                if let Err(e) = history_repository_for_rekey.rekey_app_ids(&mapping).await {
+                    eprintln!("[stratos-bar] failed to rekey history app ids: {e}");
+                }
             });
 
             // Background scan + filesystem watcher must start *after* manage(),
