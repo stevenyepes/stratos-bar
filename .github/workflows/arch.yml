@@ -22,19 +22,21 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
 
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          # PKGBUILD's pkgver() runs `git describe --tags` against a clone of
-          # this checkout; a shallow one carries no tags.
-          fetch-depth: 0
-
       - name: Install build dependencies
         run: |
           pacman -S --needed --noconfirm \
             base-devel git npm cargo nodejs \
             webkit2gtk-4.1 gtk3 libappindicator-gtk3 openssl \
             gst-plugins-base-libs gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Must run AFTER git is installed: with no git on PATH,
+          # actions/checkout falls back to a REST API tarball and leaves no
+          # .git dir, which the PKGBUILD's git+file:// source needs.
+          # fetch-depth 0 so pkgver()'s `git describe --tags` sees tags.
+          fetch-depth: 0
 
       - name: Create build user
         run: |
