@@ -6,6 +6,7 @@ use notify::RecursiveMode;
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, RecommendedCache};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU16;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -19,6 +20,7 @@ pub struct FsAppRepository {
     app_handle: Option<AppHandle>,
     watcher: Mutex<Option<Debouncer<notify::RecommendedWatcher, RecommendedCache>>>,
     use_default_paths: bool,
+    icon_scale: AtomicU16,
 }
 
 impl FsAppRepository {
@@ -30,6 +32,7 @@ impl FsAppRepository {
             app_handle: None,
             watcher: Mutex::new(None),
             use_default_paths: true,
+            icon_scale: AtomicU16::new(1),
         }
     }
 
@@ -41,6 +44,7 @@ impl FsAppRepository {
             app_handle: Some(app_handle),
             watcher: Mutex::new(None),
             use_default_paths: true,
+            icon_scale: AtomicU16::new(1),
         }
     }
 
@@ -64,6 +68,7 @@ impl FsAppRepository {
             app_handle: None,
             watcher: Mutex::new(None),
             use_default_paths: false,
+            icon_scale: AtomicU16::new(1),
         }
     }
 
@@ -231,9 +236,10 @@ impl FsAppRepository {
 
         let id = entry.id().to_string();
 
+        let scale = self.icon_scale.load(std::sync::atomic::Ordering::Relaxed);
         let icon = entry
             .icon()
-            .and_then(|i| self.icon_resolver.resolve_icon(i))
+            .and_then(|i| self.icon_resolver.resolve_icon(i, 24, scale))
             .filter(|s| !s.is_empty());
 
         let source = path_src_to_source(&path_src);
@@ -292,10 +298,14 @@ impl FsAppRepository {
             if by_id.contains_key(&id) {
                 continue;
             }
+            let scale = self.icon_scale.load(std::sync::atomic::Ordering::Relaxed);
             let icon = self
                 .icon_resolver
-                .resolve_icon(&name)
-                .or_else(|| self.icon_resolver.resolve_icon("application-x-executable"))
+                .resolve_icon(&name, 24, scale)
+                .or_else(|| {
+                    self.icon_resolver
+                        .resolve_icon("application-x-executable", 24, scale)
+                })
                 .filter(|s| !s.is_empty());
 
             by_id.insert(
@@ -355,6 +365,10 @@ impl AppRepository for FsAppRepository {
         self.start_watcher();
         let _ = self.rescan();
     }
+
+    fn set_icon_scale(&self, scale: u16) {
+        self.icon_scale.store(scale, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 fn path_src_to_source(src: &PathSource) -> AppSource {
@@ -401,7 +415,7 @@ mod tests {
 
     struct MockIconResolver;
     impl IconResolver for MockIconResolver {
-        fn resolve_icon(&self, _icon_name: &str) -> Option<String> {
+        fn resolve_icon(&self, _icon_name: &str, _size: u16, _scale: u16) -> Option<String> {
             Some("/tmp/icon.png".to_string())
         }
     }

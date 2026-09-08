@@ -29,6 +29,11 @@ const selectedIndex = ref(0)
 const showSettings = ref(false)
 const searchInput = ref(null) // Template ref
 
+// Tracks the last icon scale sent to the backend so updateWindowSize() only
+// triggers a set_icon_scale (and its full app rescan) when the scale actually
+// changes, not on every omnibar open/close/translate-mode transition.
+let lastSentIconScale = null
+
 export function useOmnibar() {
     const appWindow = getCurrentWindow()
     const vTheme = useTheme()
@@ -49,13 +54,23 @@ export function useOmnibar() {
                 width = Math.max(BASE_WIDTH, Math.floor(screenWidth * windowScale))
 
                 // Cap at reasonable max for ultrawide (unless user explicitly sets high scale, but let's constrain base width)
-                // Actually, if user sets scale, they probably want that scale. 
-                // But let's apply a soft cap for defaults or if it gets too crazy? 
+                // Actually, if user sets scale, they probably want that scale.
+                // But let's apply a soft cap for defaults or if it gets too crazy?
                 // Plan said: "cap at 95% of screen width" basically.
                 // The issue was auto-40% was too big.
                 // If user sets 0.3, on 3440 screen -> 1032px. That's fine.
-                // If user sets 0.5 -> 1720px. 
+                // If user sets 0.5 -> 1720px.
 
+                const roundedScale = Math.round(scaleFactor)
+                if (roundedScale !== lastSentIconScale) {
+                    // Update synchronously, before the await, so a second
+                    // updateWindowSize() re-entering before this invoke()
+                    // resolves sees the new value and skips the duplicate
+                    // call (and can't clobber apps.value with a stale result).
+                    lastSentIconScale = roundedScale
+                    const appsList = await invoke('set_icon_scale', { scale: roundedScale })
+                    apps.value = appsList
+                }
             } else {
                 const webScreenWidth = window.screen.width
                 if (webScreenWidth) {

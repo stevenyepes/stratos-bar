@@ -33,6 +33,16 @@ pub async fn set_custom_app_dirs(
     Ok(())
 }
 
+pub fn set_icon_scale_logic(repo: &dyn AppRepository, scale: u16) -> Result<Vec<AppEntry>, String> {
+    repo.set_icon_scale(scale);
+    repo.rescan()
+}
+
+#[tauri::command]
+pub async fn set_icon_scale(state: State<'_, AppState>, scale: u16) -> Result<Vec<AppEntry>, String> {
+    set_icon_scale_logic(&*state.app_repository, scale)
+}
+
 pub fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
     let cleaned = exec_cmd
         .replace("%f", "")
@@ -124,6 +134,19 @@ mod tests {
         let mut mock = MockAppRepository::new();
         mock.expect_rescan().times(1).returning(|| Ok(vec![]));
         let result = rescan_apps_logic(&mock);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_set_icon_scale() {
+        let mut mock = MockAppRepository::new();
+        mock.expect_set_icon_scale()
+            .times(1)
+            .with(mockall::predicate::eq(2u16))
+            .returning(|_| ());
+        mock.expect_rescan().times(1).returning(|| Ok(vec![]));
+
+        let result = set_icon_scale_logic(&mock, 2);
         assert!(result.is_ok());
     }
 

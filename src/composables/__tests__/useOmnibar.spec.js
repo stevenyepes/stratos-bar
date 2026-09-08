@@ -64,4 +64,71 @@ describe('useOmnibar', () => {
             })
         })
     })
+
+    describe('updateWindowSize - set_icon_scale', () => {
+        // Module-level scale tracking is a singleton, so each test gets a
+        // fresh module instance to avoid order-dependence between tests.
+        beforeEach(() => {
+            vi.resetModules()
+        })
+
+        const monitorWithScale = (scaleFactor) => ({
+            scaleFactor,
+            size: { width: 1920, height: 1080 }
+        })
+
+        it('calls set_icon_scale on the first call and updates apps', async () => {
+            const { currentMonitor } = await import('@tauri-apps/api/window')
+            currentMonitor.mockResolvedValue(monitorWithScale(1.5))
+            const { invoke: freshInvoke } = await import('@tauri-apps/api/core')
+            freshInvoke.mockResolvedValue(['app-a'])
+            const { useOmnibar: freshUseOmnibar } = await import('../useOmnibar')
+
+            const { updateWindowSize, apps } = freshUseOmnibar()
+            await updateWindowSize()
+
+            expect(freshInvoke).toHaveBeenCalledWith('set_icon_scale', { scale: 2 })
+            expect(apps.value).toEqual(['app-a'])
+        })
+
+        it('does not call set_icon_scale again when the rounded scale is unchanged', async () => {
+            const { currentMonitor } = await import('@tauri-apps/api/window')
+            currentMonitor.mockResolvedValue(monitorWithScale(1.5))
+            const { invoke: freshInvoke } = await import('@tauri-apps/api/core')
+            freshInvoke.mockResolvedValue(['app-a'])
+            const { useOmnibar: freshUseOmnibar } = await import('../useOmnibar')
+
+            const { updateWindowSize, apps } = freshUseOmnibar()
+            await updateWindowSize()
+
+            freshInvoke.mockClear()
+            freshInvoke.mockResolvedValue(['app-b'])
+
+            await updateWindowSize()
+
+            expect(freshInvoke).not.toHaveBeenCalledWith('set_icon_scale', expect.anything())
+            // apps.value must be left untouched when the call is skipped
+            expect(apps.value).toEqual(['app-a'])
+        })
+
+        it('calls set_icon_scale again when the rounded scale changes', async () => {
+            const { currentMonitor } = await import('@tauri-apps/api/window')
+            currentMonitor.mockResolvedValue(monitorWithScale(1.0))
+            const { invoke: freshInvoke } = await import('@tauri-apps/api/core')
+            freshInvoke.mockResolvedValue(['app-a'])
+            const { useOmnibar: freshUseOmnibar } = await import('../useOmnibar')
+
+            const { updateWindowSize, apps } = freshUseOmnibar()
+            await updateWindowSize()
+
+            currentMonitor.mockResolvedValue(monitorWithScale(2.0))
+            freshInvoke.mockClear()
+            freshInvoke.mockResolvedValue(['app-b'])
+
+            await updateWindowSize()
+
+            expect(freshInvoke).toHaveBeenCalledWith('set_icon_scale', { scale: 2 })
+            expect(apps.value).toEqual(['app-b'])
+        })
+    })
 })

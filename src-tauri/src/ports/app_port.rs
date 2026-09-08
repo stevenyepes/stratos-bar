@@ -10,4 +10,6 @@ pub trait AppRepository: Send + Sync {
     }
 
     fn set_custom_paths(&self, _paths: Vec<PathBuf>) {}
+
+    fn set_icon_scale(&self, _scale: u16) {}
 }
