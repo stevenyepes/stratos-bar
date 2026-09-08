@@ -115,6 +115,7 @@ pub fn run() {
             commands::apps::list_apps,
             commands::apps::rescan_apps,
             commands::apps::set_custom_app_dirs,
+            commands::apps::set_icon_scale,
             commands::apps::launch_app,
             commands::config::get_config,
             commands::config::save_config,

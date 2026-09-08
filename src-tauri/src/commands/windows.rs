@@ -9,9 +9,12 @@ pub async fn list_windows(state: State<'_, AppState>) -> Result<Vec<WindowEntry>
     // Enrich with icons
     for window in &mut windows {
         if window.icon.is_none() {
+            // Fixed scale of 1: window icons are a secondary surface, and threading
+            // the real monitor scale factor here would require widening this
+            // command's signature (see spec decision D3) — intentional, not an oversight.
             window.icon = state
                 .icon_resolver
-                .resolve_icon(&window.class.to_lowercase());
+                .resolve_icon(&window.class.to_lowercase(), 24, 1);
         }
     }
 
