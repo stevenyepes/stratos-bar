@@ -13,9 +13,11 @@ use adapters::fs_config_service::FsConfigService;
 use adapters::google_translation_service::GoogleTranslationService;
 use adapters::http_ai_service::HttpAiService;
 use adapters::linux_window_service::LinuxWindowService;
+use adapters::process_environment::ProcessEnvironment;
 use ports::app_port::AppRepository;
 use ports::history::HistoryRepository;
 use state::AppState;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -23,13 +25,13 @@ use tray::PaletteTray;
 use utils::toggle_main_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run(env_snapshot: HashMap<String, String>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .setup(move |app| {
             // Instantiate Adapters
             let config_service = Arc::new(FsConfigService::new());
             let icon_resolver = Arc::new(CachedIconResolver::new());
@@ -48,6 +50,7 @@ pub fn run() {
                 .unwrap_or_else(|_| PathBuf::from("."));
             let history_repository = Arc::new(FileHistoryAdapter::new(app_data_dir));
             let translation_service = Arc::new(GoogleTranslationService::new(None));
+            let env_port = Arc::new(ProcessEnvironment::new(env_snapshot));
 
             // Manage State
             app.manage(AppState {
@@ -58,6 +61,7 @@ pub fn run() {
                 ai_service,
                 history_repository: history_repository.clone(),
                 translation_service,
+                env_port,
             });
 
             // Rekey history entries from exec-derived ids to desktop-file ids.

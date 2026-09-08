@@ -1,6 +1,7 @@
 use crate::domain::apps::AppEntry;
 use crate::ports::app_port::AppRepository;
 use crate::state::AppState;
+use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use tauri::State;
@@ -59,9 +60,8 @@ pub fn parse_exec_command(exec_cmd: &str) -> Option<(String, Vec<String>)> {
     Some((cmd, args))
 }
 
-#[tauri::command]
-pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
-    let (cmd, args) = parse_exec_command(&exec_cmd).ok_or_else(|| "Empty command".to_string())?;
+pub fn launch_app_logic(exec_cmd: &str, env: &HashMap<String, String>) -> Result<(), String> {
+    let (cmd, args) = parse_exec_command(exec_cmd).ok_or_else(|| "Empty command".to_string())?;
 
     if !cmd.contains('/') && which::which(&cmd).is_err() {
         return Err(format!("Command not found in PATH: {cmd}"));
@@ -69,6 +69,8 @@ pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
 
     std::process::Command::new(cmd)
         .args(args)
+        .env_clear()
+        .envs(env)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -77,6 +79,11 @@ pub async fn launch_app(exec_cmd: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn launch_app(state: State<'_, AppState>, exec_cmd: String) -> Result<(), String> {
+    launch_app_logic(&exec_cmd, &state.env_port.snapshot())
 }
 
 #[cfg(test)]
@@ -145,5 +152,62 @@ mod tests {
             ))
         );
         assert_eq!(parse_exec_command(""), None);
+    }
+
+    /// Reproduces the GPU regression: main.rs sets WEBKIT_DISABLE_DMABUF_RENDERER on
+    /// stratos-bar's own process to work around a WebKitGTK black-window bug, and
+    /// launch_app spawns children via std::process::Command with no environment of its
+    /// own, so they inherit that var. This test simulates the poisoned parent process
+    /// and asserts a child launched through launch_app does NOT see the var. It fails
+    /// today because launch_app has no mechanism to build the child's environment from
+    /// anything other than live inheritance.
+    #[tokio::test]
+    async fn test_launch_app_inherits_poisoned_environment() {
+        let marker = std::env::temp_dir().join(format!(
+            "stratos_bar_repro_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_file(&marker);
+
+        // Simulate main.rs's pre-mutation snapshot, captured before the workaround below.
+        let snapshot: HashMap<String, String> = std::env::vars().collect();
+
+        // Simulate the workaround main.rs applies to its own process before doing
+        // anything else.
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
+        let exec_cmd = format!(
+            "sh -c 'if [ -z \"$WEBKIT_DISABLE_DMABUF_RENDERER\" ]; then touch {}; fi'",
+            marker.display()
+        );
+
+        let result = launch_app_logic(&exec_cmd, &snapshot);
+
+        std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER");
+
+        assert!(result.is_ok(), "launch_app failed: {:?}", result.err());
+
+        // launch_app spawns fire-and-forget, so poll briefly for the child to finish.
+        let mut waited = std::time::Duration::from_millis(0);
+        let step = std::time::Duration::from_millis(50);
+        let timeout = std::time::Duration::from_secs(2);
+        while !marker.exists() && waited < timeout {
+            std::thread::sleep(step);
+            waited += step;
+        }
+
+        let inherited = !marker.exists();
+        let _ = std::fs::remove_file(&marker);
+
+        assert!(
+            !inherited,
+            "child spawned by launch_app inherited WEBKIT_DISABLE_DMABUF_RENDERER from the \
+             poisoned parent environment; launch_app must build the child's environment from \
+             a snapshot captured before main.rs mutates it, not from live inheritance"
+        );
     }
 }
