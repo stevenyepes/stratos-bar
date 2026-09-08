@@ -69,9 +69,10 @@ pub fn run(env_snapshot: HashMap<String, String>) {
             let history_repository_for_rekey = history_repository;
             let app_repository_for_rekey = app_repository.clone();
             tauri::async_runtime::spawn(async move {
-                let list_apps_result =
-                    tauri::async_runtime::spawn_blocking(move || app_repository_for_rekey.list_apps())
-                        .await;
+                let list_apps_result = tauri::async_runtime::spawn_blocking(move || {
+                    app_repository_for_rekey.list_apps()
+                })
+                .await;
                 let mapping: std::collections::HashMap<String, String> = match list_apps_result {
                     Ok(Ok(apps)) => apps.into_iter().map(|app| (app.exec, app.id)).collect(),
                     Ok(Err(e)) => {

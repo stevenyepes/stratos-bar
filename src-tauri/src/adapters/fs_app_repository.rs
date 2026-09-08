@@ -367,7 +367,8 @@ impl AppRepository for FsAppRepository {
     }
 
     fn set_icon_scale(&self, scale: u16) {
-        self.icon_scale.store(scale, std::sync::atomic::Ordering::Relaxed);
+        self.icon_scale
+            .store(scale, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

@@ -39,7 +39,10 @@ pub fn set_icon_scale_logic(repo: &dyn AppRepository, scale: u16) -> Result<Vec<
 }
 
 #[tauri::command]
-pub async fn set_icon_scale(state: State<'_, AppState>, scale: u16) -> Result<Vec<AppEntry>, String> {
+pub async fn set_icon_scale(
+    state: State<'_, AppState>,
+    scale: u16,
+) -> Result<Vec<AppEntry>, String> {
     set_icon_scale_logic(&*state.app_repository, scale)
 }
 
