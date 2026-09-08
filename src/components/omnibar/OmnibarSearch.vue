@@ -301,7 +301,7 @@ async function executeAction(index) {
         if (action) {
             // Re-execute based on kind
             if (action.kind === 'app') {
-               await executeApp({ exec: action.content, name: action.name }) // Reconstruct basic app object
+               await executeApp({ exec: action.content, name: action.name, id: action.id.startsWith('app:') ? action.id.slice(4) : action.id }) // Reconstruct basic app object
             } else if (action.kind === 'script') {
                await executeScript({ path: action.content, alias: action.name })
             } else if (action.kind === 'file') {

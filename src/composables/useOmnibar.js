@@ -176,7 +176,7 @@ export function useOmnibar() {
             };
 
             if (item.exec) { // App
-                action.id = 'app:' + item.exec;
+                action.id = 'app:' + item.id;
                 action.kind = 'app';
                 action.content = item.exec;
                 action.name = item.name;
@@ -310,13 +310,14 @@ export function useOmnibar() {
         const recentMap = new Map()
         recentActions.value.forEach((action, index) => {
             if (action.kind === 'app') {
-                recentMap.set(action.content, 10000 - index)
+                const appId = action.id.startsWith('app:') ? action.id.slice(4) : action.id
+                recentMap.set(appId, 10000 - index)
             }
         })
 
         matches.sort((a, b) => {
-            const scoreA = recentMap.get(a.exec) || 0
-            const scoreB = recentMap.get(b.exec) || 0
+            const scoreA = recentMap.get(a.id) || 0
+            const scoreB = recentMap.get(b.id) || 0
             if (scoreA !== scoreB) return scoreB - scoreA // Descending score
 
             // Secondary sort: Starts with query?

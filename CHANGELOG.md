@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Apps**: `AppEntry.id` is now derived from the spec-compliant XDG desktop-file-id instead of the bare filename, fixing id collisions between desktop files with the same name in different nested subdirectories.
+- **History**: App history/frequency data is now keyed by app id instead of the `exec` string, preventing entries from splitting or merging incorrectly when an app's launch command changes. Existing `history.json` entries are automatically and non-destructively migrated to the new key on first startup, preserving frequency and last-accessed data.
+
 ## [0.1.2] - 2026-01-10
 
 ### Added

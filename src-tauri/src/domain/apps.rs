@@ -2,6 +2,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AppEntry {
+    /// The XDG desktop-file-id: the `.desktop` file's path relative to its
+    /// `applications/` root, with path separators replaced by `-` (e.g.
+    /// `kde4-foo` for `applications/kde4/foo.desktop`). Not a bare filename —
+    /// entries nested in subdirectories are not equivalent to their basename.
+    /// AppImage entries instead use the `appimage:<name>` namespace.
     pub id: String,
     pub name: String,
     pub generic_name: Option<String>,
