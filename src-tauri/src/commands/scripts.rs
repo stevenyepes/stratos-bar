@@ -13,6 +13,7 @@ pub async fn list_scripts(state: State<'_, AppState>) -> Result<Vec<ScriptConfig
 #[tauri::command]
 pub async fn execute_script(
     window: tauri::Window,
+    state: State<'_, AppState>,
     path: String,
     args: Option<String>,
 ) -> Result<(), String> {
@@ -30,6 +31,8 @@ pub async fn execute_script(
         let parts = shell_words::split(&args_str).map_err(|e| e.to_string())?;
         cmd.args(parts);
     }
+
+    cmd.env_clear().envs(state.env_port.snapshot());
 
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());

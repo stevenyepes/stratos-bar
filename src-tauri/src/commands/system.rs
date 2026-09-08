@@ -211,6 +211,7 @@ pub async fn make_file_executable(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn generate_video_thumbnail(
     app_handle: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
     path: String,
 ) -> Result<String, String> {
     use std::process::Command;
@@ -242,6 +243,8 @@ pub async fn generate_video_thumbnail(
     // Run ffmpeg
     // ffmpeg -y -i <input> -ss 00:00:01 -vframes 1 -vf scale=640:-1 <output>
     let output = Command::new("ffmpeg")
+        .env_clear()
+        .envs(state.env_port.snapshot())
         .arg("-y")
         .arg("-i")
         .arg(&path)
