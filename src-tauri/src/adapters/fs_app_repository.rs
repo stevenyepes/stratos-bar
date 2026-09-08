@@ -226,13 +226,12 @@ impl FsAppRepository {
         }
 
         let name = entry.name(locales)?.into_owned();
-        let exec_raw = entry.exec()?.to_string();
+        let exec = entry.exec()?.to_string();
         if let Some(try_exec) = entry.try_exec() {
             if !try_exec_path_ok(try_exec) {
                 return None;
             }
         }
-        let exec = clean_exec(&exec_raw);
 
         let id = entry.id().to_string();
 
@@ -263,6 +262,7 @@ impl FsAppRepository {
             startup_wm_class: entry.startup_wm_class().map(|s| s.to_string()),
             source,
             path: entry.path.to_string_lossy().to_string(),
+            working_dir: entry.path().map(|s| s.to_string()),
         })
     }
 
@@ -323,6 +323,7 @@ impl FsAppRepository {
                     startup_wm_class: None,
                     source: AppSource::AppImage,
                     path: path.to_string_lossy().to_string(),
+                    working_dir: None,
                 },
             );
         }
@@ -352,6 +353,16 @@ impl AppRepository for FsAppRepository {
             let _ = handle.emit("apps-updated", &apps);
         }
         Ok(apps)
+    }
+
+    fn resolve(&self, id: &str) -> Result<Option<AppEntry>, String> {
+        if let Ok(cache) = self.cache.lock() {
+            if let Some(app) = cache.iter().find(|app| app.id == id) {
+                return Ok(Some(app.clone()));
+            }
+        }
+        let apps = self.rescan()?;
+        Ok(apps.into_iter().find(|app| app.id == id))
     }
 
     fn set_custom_paths(&self, paths: Vec<PathBuf>) {
@@ -393,19 +404,6 @@ fn try_exec_path_ok(try_exec: &str) -> bool {
     }
 }
 
-fn clean_exec(raw: &str) -> String {
-    let mut s = raw.to_string();
-    for code in [
-        "%f", "%F", "%u", "%U", "%i", "%c", "%k", "%d", "%D", "%n", "%N", "%v", "%m", "%M",
-    ] {
-        s = s.replace(code, "");
-    }
-    if let Some(start) = s.find("--file-forwarding") {
-        s.truncate(start);
-    }
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,7 +443,7 @@ mod tests {
         let apps = repo.list_apps().unwrap();
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Test App");
-        assert_eq!(apps[0].exec, "test-exec");
+        assert_eq!(apps[0].exec, "test-exec %f");
         assert_eq!(apps[0].icon, Some("/tmp/icon.png".to_string()));
         assert_eq!(apps[0].source, AppSource::Desktop);
         assert!(apps[0].categories.is_empty());
@@ -494,24 +492,6 @@ mod tests {
         );
         let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
         assert!(repo.list_apps().unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_clean_exec_strips_all_field_codes() {
-        assert_eq!(clean_exec("firefox %u"), "firefox");
-        assert_eq!(clean_exec("vlc %F"), "vlc");
-        assert_eq!(clean_exec("a %d %D %n %N %v %m %M"), "a");
-    }
-
-    #[test]
-    fn test_clean_exec_strips_flatpak_file_forwarding() {
-        let raw = "/usr/bin/flatpak run --command=imhex --file-forwarding net.app @@u %U @@";
-        let out = clean_exec(raw);
-        assert!(!out.contains("--file-forwarding"));
-        assert!(!out.contains("@@"));
-        assert!(!out.contains("%U"));
-        assert!(out.contains("/usr/bin/flatpak"));
-        assert!(out.contains("--command=imhex"));
     }
 
     #[test]
@@ -595,5 +575,81 @@ mod tests {
         );
         let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
         assert!(repo.list_apps().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_entry_populates_working_dir_from_path_key_distinct_from_path() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+        let desktop_path = write_desktop(
+            &apps_dir,
+            "test-app",
+            "[Desktop Entry]\nName=Test App\nExec=test-exec\nPath=/some/dir\nType=Application\n",
+        );
+
+        let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
+        let apps = repo.list_apps().unwrap();
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].working_dir, Some("/some/dir".to_string()));
+        assert_eq!(apps[0].path, desktop_path.to_string_lossy().to_string());
+    }
+
+    #[test]
+    fn test_resolve_returns_cached_entry_without_rescan() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+
+        let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
+        let cached = AppEntry {
+            id: "cached-app".to_string(),
+            name: "Cached App".to_string(),
+            generic_name: None,
+            description: None,
+            keywords: Vec::new(),
+            exec: "cached-exec".to_string(),
+            try_exec: None,
+            icon: None,
+            categories: Vec::new(),
+            startup_wm_class: None,
+            source: AppSource::Desktop,
+            path: "/nonexistent/cached-app.desktop".to_string(),
+            working_dir: None,
+        };
+        *repo.cache.lock().unwrap() = vec![cached.clone()];
+
+        let resolved = repo.resolve("cached-app").unwrap();
+        assert_eq!(resolved, Some(cached));
+    }
+
+    #[test]
+    fn test_resolve_forces_rescan_when_missing_from_cache() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+
+        let repo =
+            FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir.clone()]);
+        // Cache is empty, so it doesn't yet know about this id.
+        write_desktop(
+            &apps_dir,
+            "late-app",
+            "[Desktop Entry]\nName=Late App\nExec=late-exec\nType=Application\n",
+        );
+
+        let resolved = repo.resolve("late-app").unwrap();
+        assert_eq!(resolved.map(|a| a.id), Some("late-app".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_returns_none_for_id_missing_even_after_rescan() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+
+        let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
+        let resolved = repo.resolve("does-not-exist").unwrap();
+        assert_eq!(resolved, None);
     }
 }

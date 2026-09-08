@@ -85,7 +85,7 @@ export const MatugenSkill = {
             // 2. Run matugen for system-wide sync
             const safeFile = file.replace(/"/g, '\\"')
             const cmd = `matugen image "${safeFile}"`
-            await backend.launchApp(cmd)
+            await backend.runCommand(cmd)
 
             return `Theme updated from ${file.split('/').pop()}`
         } catch (e) {

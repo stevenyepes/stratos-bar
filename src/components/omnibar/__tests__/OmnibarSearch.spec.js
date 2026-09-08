@@ -89,7 +89,7 @@ describe('OmnibarSearch', () => {
         await recentActionItem.trigger('click')
         await flushPromises()
 
-        expect(invoke).toHaveBeenCalledWith('launch_app', { execCmd: '/usr/bin/firefox' })
+        expect(invoke).toHaveBeenCalledWith('launch_app', { id: 'firefox.desktop' })
         expect(invoke).toHaveBeenCalledWith('record_action', {
             action: expect.objectContaining({
                 id: 'app:firefox.desktop',
