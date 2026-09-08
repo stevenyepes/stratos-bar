@@ -14,7 +14,11 @@ fn capture_env_snapshot() -> HashMap<String, String> {
 
 fn main() {
     let env_snapshot = capture_env_snapshot();
-    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
+    let input = stratos_bar_lib::adapters::webkit_nvidia_quirk::detect_quirk_input();
+    let action = stratos_bar_lib::adapters::webkit_nvidia_quirk::decide_quirk(&input);
+    stratos_bar_lib::adapters::webkit_nvidia_quirk::apply_quirk(action);
+
     stratos_bar_lib::run(env_snapshot)
 }
 
@@ -25,20 +29,30 @@ mod tests {
     #[test]
     fn test_snapshot_excludes_var_set_after_capture() {
         std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER");
+        std::env::remove_var("__NV_DISABLE_EXPLICIT_SYNC");
 
         let snapshot = capture_env_snapshot();
         assert!(!snapshot.contains_key("WEBKIT_DISABLE_DMABUF_RENDERER"));
+        assert!(!snapshot.contains_key("__NV_DISABLE_EXPLICIT_SYNC"));
 
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
         assert_eq!(
             std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").as_deref(),
             Ok("1")
         );
+        assert_eq!(
+            std::env::var("__NV_DISABLE_EXPLICIT_SYNC").as_deref(),
+            Ok("1")
+        );
 
-        // The snapshot was captured before the mutation above, so it must
-        // still not contain the variable even though the live process does.
+        // The snapshot was captured before the mutations above, so it must
+        // still not contain either quirk variable even though the live
+        // process now does.
         assert!(!snapshot.contains_key("WEBKIT_DISABLE_DMABUF_RENDERER"));
+        assert!(!snapshot.contains_key("__NV_DISABLE_EXPLICIT_SYNC"));
 
         std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER");
+        std::env::remove_var("__NV_DISABLE_EXPLICIT_SYNC");
     }
 }
