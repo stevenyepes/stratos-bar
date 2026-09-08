@@ -105,8 +105,8 @@ describe('MatugenSkill', () => {
         expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(CustomEvent))
 
         // 4. Check if matugen command was launched
-        expect(invoke).toHaveBeenCalledWith('launch_app', {
-            execCmd: 'matugen image "/path/to/image.png"'
+        expect(invoke).toHaveBeenCalledWith('run_command', {
+            cmd: 'matugen image "/path/to/image.png"'
         })
 
         // 5. Verify return message

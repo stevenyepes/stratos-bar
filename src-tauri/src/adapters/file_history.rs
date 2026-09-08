@@ -168,11 +168,19 @@ mod tests {
         let adapter = FileHistoryAdapter::new(dir.path().to_path_buf());
         seed(
             &adapter,
-            vec![make_action("app:/usr/bin/firefox", "/usr/bin/firefox", 5, 100)],
+            vec![make_action(
+                "app:/usr/bin/firefox",
+                "/usr/bin/firefox",
+                5,
+                100,
+            )],
         );
 
         let mut mapping = HashMap::new();
-        mapping.insert("/usr/bin/firefox".to_string(), "firefox.desktop".to_string());
+        mapping.insert(
+            "/usr/bin/firefox".to_string(),
+            "firefox.desktop".to_string(),
+        );
 
         adapter.rekey_app_ids(&mapping).await.unwrap();
 
@@ -189,11 +197,19 @@ mod tests {
         let adapter = FileHistoryAdapter::new(dir.path().to_path_buf());
         seed(
             &adapter,
-            vec![make_action("app:/usr/bin/firefox", "/usr/bin/firefox", 5, 100)],
+            vec![make_action(
+                "app:/usr/bin/firefox",
+                "/usr/bin/firefox",
+                5,
+                100,
+            )],
         );
 
         let mut mapping = HashMap::new();
-        mapping.insert("/usr/bin/firefox".to_string(), "firefox.desktop".to_string());
+        mapping.insert(
+            "/usr/bin/firefox".to_string(),
+            "firefox.desktop".to_string(),
+        );
 
         adapter.rekey_app_ids(&mapping).await.unwrap();
         adapter.rekey_app_ids(&mapping).await.unwrap();
@@ -218,7 +234,10 @@ mod tests {
         );
 
         let mut mapping = HashMap::new();
-        mapping.insert("/usr/bin/firefox".to_string(), "firefox.desktop".to_string());
+        mapping.insert(
+            "/usr/bin/firefox".to_string(),
+            "firefox.desktop".to_string(),
+        );
         mapping.insert("firefox %u".to_string(), "firefox.desktop".to_string());
 
         adapter.rekey_app_ids(&mapping).await.unwrap();
@@ -236,7 +255,12 @@ mod tests {
         let adapter = FileHistoryAdapter::new(dir.path().to_path_buf());
         seed(
             &adapter,
-            vec![make_action("app:/usr/bin/unknown", "/usr/bin/unknown", 2, 50)],
+            vec![make_action(
+                "app:/usr/bin/unknown",
+                "/usr/bin/unknown",
+                2,
+                50,
+            )],
         );
 
         let mapping = HashMap::new();

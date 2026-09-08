@@ -9,8 +9,12 @@ export const backend = {
         return await invoke('save_config', { config })
     },
 
-    async launchApp(execCmd) {
-        return await invoke('launch_app', { execCmd })
+    async launchApp(id) {
+        return await invoke('launch_app', { id })
+    },
+
+    async runCommand(cmd) {
+        return await invoke('run_command', { cmd })
     },
 
     async listApps() {

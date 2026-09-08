@@ -19,6 +19,7 @@ pub struct AppEntry {
     pub startup_wm_class: Option<String>,
     pub source: AppSource,
     pub path: String,
+    pub working_dir: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,6 +52,7 @@ mod tests {
             startup_wm_class: Some("Firefox".to_string()),
             source: AppSource::Desktop,
             path: "/usr/share/applications/firefox.desktop".to_string(),
+            working_dir: None,
         };
 
         assert_eq!(app.id, "firefox");

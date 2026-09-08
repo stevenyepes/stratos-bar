@@ -363,7 +363,7 @@ async function executeAction(index) {
 
 async function executeApp(app) {
   try {
-    await invoke('launch_app', { execCmd: app.exec })
+    await invoke('launch_app', { id: app.id })
     recordAction(app)
     query.value = ''
     await hideWindow()

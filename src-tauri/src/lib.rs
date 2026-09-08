@@ -121,6 +121,7 @@ pub fn run(env_snapshot: HashMap<String, String>) {
             commands::apps::set_custom_app_dirs,
             commands::apps::set_icon_scale,
             commands::apps::launch_app,
+            commands::apps::run_command,
             commands::config::get_config,
             commands::config::save_config,
             commands::ai::ask_ai,
