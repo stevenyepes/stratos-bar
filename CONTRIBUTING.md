@@ -47,6 +47,36 @@ This section guides you through submitting an enhancement suggestion, including 
 - **TypeScript/Vue**: We follow the standard Vue.js style guide.
 - **Rust**: We follow `rustfmt` standard. Please run `cargo fmt` before submitting.
 
+## Security Audits
+
+CI runs `cargo audit` (in `test-backend`) and `npm audit` (in `test-frontend`) on every
+push and pull request. Both are checked against `security/audit-ignore.toml` by
+`scripts/check-audit-ignores.py`, so a build only stays green if every reported advisory
+is either fixed or has a live ignore entry.
+
+### Adding an ignore entry
+
+If an advisory has no direct fix available in this repo (e.g. it's pulled in
+transitively, or fixing it requires a coordinated major bump that's out of scope for
+your change), add an entry to `security/audit-ignore.toml`:
+
+```toml
+[[ignore]]
+id = "RUSTSEC-2026-0007"   # or a GHSA-... id for npm advisories
+tool = "cargo"             # "cargo" or "npm"
+reason = "short explanation of why this can't be fixed right now"
+expires = "2026-10-15"     # ISO date; near-term, not far-future
+```
+
+### What the expiry date obligates you to
+
+An ignore entry is a deferral, not a silent, permanent suppression. Once `expires`
+passes, `check-audit-ignores.py` fails the build for everyone until the entry is
+renewed with a fresh `expires` date (after re-checking that the advisory still can't be
+fixed) or the underlying dependency is actually upgraded/patched. Don't set a
+far-future date to make the problem go away — pick a date you're actually willing to
+revisit.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under its MIT License.
