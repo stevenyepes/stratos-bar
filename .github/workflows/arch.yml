@@ -7,6 +7,11 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+# A new push to the same branch supersedes the old build; don't pay for both.
+concurrency:
+  group: arch-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: makepkg -s
@@ -14,6 +19,11 @@ jobs:
     container:
       image: archlinux:latest
       options: --privileged
+    env:
+      # Outside $srcdir, which makepkg wipes on every extract, so these survive
+      # between runs and can be cached. The PKGBUILD honours CARGO_TARGET_DIR.
+      CARGO_HOME: /ci/cargo
+      CARGO_TARGET_DIR: /ci/target
     steps:
       - name: Update system
         run: |
@@ -38,6 +48,18 @@ jobs:
           # fetch-depth 0 so pkgver()'s `git describe --tags` sees tags.
           fetch-depth: 0
 
+      - name: Cache cargo registry and target dir
+        uses: actions/cache@v4
+        with:
+          path: |
+            /ci/cargo
+            /ci/target
+          # Keyed on the lockfile only, so the cache is written once per
+          # dependency change and merely restored on every other run. The
+          # stratos-bar crate itself always recompiles; its ~400 deps do not.
+          key: arch-cargo-v1-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: arch-cargo-v1-
+
       - name: Create build user
         run: |
           # makepkg refuses to run as root; the container has no other user.
@@ -46,20 +68,36 @@ jobs:
           # actions/checkout ran as root, so hand the tree to builder for
           # makepkg's src/ and pkg/ dirs and to keep git happy about ownership.
           chown -R builder:builder "$GITHUB_WORKSPACE"
+          # Cache dirs are restored as root (or absent on a cache miss).
+          mkdir -p "$CARGO_HOME" "$CARGO_TARGET_DIR"
+          chown -R builder:builder /ci
 
-      - name: Build
+      - name: Build and test
         working-directory: pkg/arch
-        run: sudo -H -u builder makepkg -sf --noconfirm
-
-      - name: Run check() (tests)
-        working-directory: pkg/arch
-        run: sudo -H -u builder makepkg -sf --check --noextract --noprepare --noconfirm
+        # makepkg runs check() by default (BUILDENV has `check`), so this one
+        # invocation covers build + tests. A second `makepkg --check` pass would
+        # re-run build() first, and the fat-LTO relink alone costs ~6 minutes.
+        run: |
+          sudo -H -u builder \
+            env CARGO_HOME="$CARGO_HOME" CARGO_TARGET_DIR="$CARGO_TARGET_DIR" \
+            makepkg -sf --noconfirm
 
       - name: Inspect package contents
         working-directory: pkg/arch
         run: |
           ls -la *.pkg.tar.zst
           tar -tvf *.pkg.tar.zst | head -30
+
+      - name: Trim cache before save
+        run: |
+          # Extracted crate sources and incremental state are regenerable; the
+          # downloaded .crate files and compiled deps are what's worth keeping.
+          rm -rf "$CARGO_HOME/registry/src" "$CARGO_HOME/registry/index"/*/.cache
+          rm -rf "$CARGO_TARGET_DIR"/{debug,release}/incremental
+          # Our own crate's artifacts are rebuilt every run regardless.
+          find "$CARGO_TARGET_DIR" -maxdepth 3 \
+            \( -name 'stratos_bar*' -o -name 'stratos-bar*' \) -exec rm -rf {} +
+          du -sh "$CARGO_HOME" "$CARGO_TARGET_DIR"
 
       - name: Upload .pkg.tar.zst
         uses: actions/upload-artifact@v4

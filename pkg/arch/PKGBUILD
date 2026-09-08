@@ -53,8 +53,12 @@ check() {
 package() {
     cd "$srcdir/$pkgname"
 
+    # cargo (and the tauri CLI) write to $CARGO_TARGET_DIR when it is set;
+    # CI points it outside $srcdir so the compiled deps survive between runs.
+    local target="${CARGO_TARGET_DIR:-src-tauri/target}"
+
     # Binary
-    install -Dm755 "src-tauri/target/release/stratos-bar" "$pkgdir/usr/bin/stratos-bar"
+    install -Dm755 "$target/release/stratos-bar" "$pkgdir/usr/bin/stratos-bar"
 
     # Icons (Tauri generates these from the source SVG; sizes match hicolor spec)
     for size in 32 128; do
