@@ -18,18 +18,18 @@ name = "stratos_bar_lib"
 [dependencies]
 arboard = "3"
 async-trait = "0.1.89"
-dirs = "5"
+dirs = "6"
 freedesktop-desktop-entry = "0.8.0"
 freedesktop-icons = "0.4.0"
 futures-util = "0.3"
 glob = "0.3.3"
-image = "0.24"
+image = "0.25"
 ksni = "0.2.1"
 notify = "8"
 notify-debouncer-full = "0.5"
 open = "5"
-which = "6"
-reqwest = { version = "0.11", features = ["json", "stream"] }
+which = "8"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shell-words = "1.1.0"
@@ -48,7 +48,7 @@ walkdir = "2"
 mockall = "0.13"
 tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }
-wiremock = "0.5"
+wiremock = "0.6"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
