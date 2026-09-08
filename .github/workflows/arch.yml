@@ -24,6 +24,12 @@ jobs:
       # between runs and can be cached. The PKGBUILD honours CARGO_TARGET_DIR.
       CARGO_HOME: /ci/cargo
       CARGO_TARGET_DIR: /ci/target
+      # check() only needs tests to pass, not to be debuggable. Emitting DWARF
+      # for ~400 dependency crates dominated the dev-profile build; dropping it
+      # took that build from 5m13s to 57s locally and the artifacts from 7.0G
+      # to 2.5G, which also keeps the cache well clear of the 10G repo limit.
+      # test.yml still builds with full debuginfo.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - name: Update system
         run: |
@@ -57,8 +63,8 @@ jobs:
           # Keyed on the lockfile only, so the cache is written once per
           # dependency change and merely restored on every other run. The
           # stratos-bar crate itself always recompiles; its ~400 deps do not.
-          key: arch-cargo-v1-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: arch-cargo-v1-
+          key: arch-cargo-v2-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: arch-cargo-v2-
 
       - name: Create build user
         run: |
@@ -80,6 +86,7 @@ jobs:
         run: |
           sudo -H -u builder \
             env CARGO_HOME="$CARGO_HOME" CARGO_TARGET_DIR="$CARGO_TARGET_DIR" \
+                CARGO_PROFILE_DEV_DEBUG="$CARGO_PROFILE_DEV_DEBUG" \
             makepkg -sf --noconfirm
 
       - name: Inspect package contents
@@ -95,7 +102,9 @@ jobs:
           rm -rf "$CARGO_HOME/registry/src" "$CARGO_HOME/registry/index"/*/.cache
           rm -rf "$CARGO_TARGET_DIR"/{debug,release}/incremental
           # Our own crate's artifacts are rebuilt every run regardless.
-          find "$CARGO_TARGET_DIR" -maxdepth 3 \
+          # -mindepth 1 so the target dir itself can never match the -name test
+          # and get removed along with the whole cache.
+          find "$CARGO_TARGET_DIR" -mindepth 1 -maxdepth 3 \
             \( -name 'stratos_bar*' -o -name 'stratos-bar*' \) -exec rm -rf {} +
           du -sh "$CARGO_HOME" "$CARGO_TARGET_DIR"
 
