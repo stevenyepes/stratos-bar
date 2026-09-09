@@ -55,8 +55,23 @@ fn calculate_file_score(name: &str, ext: Option<&str>, query: &str) -> i32 {
     score
 }
 
+/// Grants every hit before handing it to the webview: a result the user can see
+/// is a result they can click to preview, and `srcUrl` is computed synchronously
+/// on selection -- ahead of the preview commands below -- so the grant has to
+/// already be in place by then.
 #[tauri::command]
 pub async fn search_files(
+    state: tauri::State<'_, crate::state::AppState>,
+    query: String,
+    path: String,
+    include_hidden: bool,
+) -> Result<Vec<String>, String> {
+    let results = search_files_logic(query, path, include_hidden).await?;
+    state.preview_grants.grant_all(&results);
+    Ok(results)
+}
+
+pub async fn search_files_logic(
     query: String,
     path: String,
     include_hidden: bool,
@@ -112,7 +127,19 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
 }
 
 #[tauri::command]
-pub async fn read_file_preview(path: String, max_bytes: Option<usize>) -> Result<String, String> {
+pub async fn read_file_preview(
+    state: tauri::State<'_, crate::state::AppState>,
+    path: String,
+    max_bytes: Option<usize>,
+) -> Result<String, String> {
+    state.preview_grants.grant(&path);
+    read_file_preview_logic(path, max_bytes).await
+}
+
+pub async fn read_file_preview_logic(
+    path: String,
+    max_bytes: Option<usize>,
+) -> Result<String, String> {
     use std::io::Read;
     let limit = max_bytes.unwrap_or(2048);
     let mut file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
@@ -130,7 +157,15 @@ pub async fn read_file_preview(path: String, max_bytes: Option<usize>) -> Result
 }
 
 #[tauri::command]
-pub async fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
+pub async fn get_file_metadata(
+    state: tauri::State<'_, crate::state::AppState>,
+    path: String,
+) -> Result<FileMetadata, String> {
+    state.preview_grants.grant(&path);
+    get_file_metadata_logic(path).await
+}
+
+pub async fn get_file_metadata_logic(path: String) -> Result<FileMetadata, String> {
     let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
 
     let created = metadata
@@ -237,6 +272,7 @@ pub async fn generate_video_thumbnail(
     let thumb_path_str = thumb_path.to_string_lossy().to_string();
 
     if thumb_path.exists() {
+        state.preview_grants.grant(&thumb_path);
         return Ok(thumb_path_str);
     }
 
@@ -264,6 +300,10 @@ pub async fn generate_video_thumbnail(
         return Err(format!("ffmpeg failed: {}", stderr));
     }
 
+    // The frontend hands this straight to `convertFileSrc`, so it needs a grant
+    // like any other previewable path.
+    state.preview_grants.grant(&thumb_path);
+
     Ok(thumb_path_str)
 }
 
@@ -279,7 +319,7 @@ mod tests {
         let mut file = std::fs::File::create(&file_path).unwrap();
         writeln!(file, "Hello, World!").unwrap();
 
-        let content = read_file_preview(file_path.to_string_lossy().to_string(), Some(1024))
+        let content = read_file_preview_logic(file_path.to_string_lossy().to_string(), Some(1024))
             .await
             .unwrap();
         assert!(content.contains("Hello, World!"));
@@ -292,7 +332,8 @@ mod tests {
         let mut file = std::fs::File::create(&file_path).unwrap();
         file.write_all(&[0, 1, 2, 3, 4]).unwrap();
 
-        let result = read_file_preview(file_path.to_string_lossy().to_string(), Some(1024)).await;
+        let result =
+            read_file_preview_logic(file_path.to_string_lossy().to_string(), Some(1024)).await;
         assert!(result.is_err());
         assert_eq!(result.err().unwrap(), "Binary file detected");
     }
@@ -304,7 +345,7 @@ mod tests {
         let mut file = std::fs::File::create(&file_path).unwrap();
         writeln!(file, "Meta test").unwrap();
 
-        let metadata = get_file_metadata(file_path.to_string_lossy().to_string())
+        let metadata = get_file_metadata_logic(file_path.to_string_lossy().to_string())
             .await
             .unwrap();
         assert!(metadata.size > 0);
@@ -359,7 +400,7 @@ mod tests {
         // Test 1: Exclude hidden (default)
         // Should find 'visible.txt' but not '.hidden.txt' or 'file.txt' inside hidden dir
         // searching for "txt" or "." or ""
-        let results = search_files(
+        let results = search_files_logic(
             "txt".to_string(),
             temp_dir.to_string_lossy().to_string(),
             false,
@@ -385,7 +426,7 @@ mod tests {
         );
 
         // Test 2: Include hidden
-        let results_all = search_files(
+        let results_all = search_files_logic(
             "txt".to_string(),
             temp_dir.to_string_lossy().to_string(),
             true,
