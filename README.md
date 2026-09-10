@@ -213,7 +213,7 @@ cd stratos-bar
 ./pkg/arch/install.sh
 ```
 
-`install.sh` first checks that `makepkg`, `pacman`, `npm`, `cargo`, `node`, and `git` are available, then checks the runtime packages (`webkit2gtk-4.1`, `gtk3`, `libappindicator-gtk3`), and only then builds + installs via `makepkg -si`. This compiles the full Tauri app (Rust backend and Vue frontend), so expect the build to take several minutes, not seconds.
+`install.sh` first checks that `makepkg`, `pacman`, `npm`, `cargo`, `node`, and `git` are available, then checks the runtime packages (`webkit2gtk-4.1`, `gtk3`, `libappindicator-gtk3`), then clears makepkg's cached clone so the build always starts from the checkout's current `HEAD`, and only then builds + installs via `makepkg -si`. It can be run from any directory. This compiles the full Tauri app (Rust backend and Vue frontend), so expect the build to take several minutes, not seconds.
 
 ---
 

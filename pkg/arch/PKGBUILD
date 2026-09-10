@@ -13,13 +13,18 @@ optdepends=(
     'hyprland: Native window management support'
 )
 makedepends=('npm' 'cargo' 'nodejs' 'git')
-# The #branch fragment is load-bearing, not decoration. Without it makepkg checks
-# out whatever refs/remotes/origin/HEAD names in its cached working copy -- a ref
-# git writes once, at clone time, and no later fetch updates. A cache first seeded
-# while this repo sat on a topic branch then keeps building that branch after it is
-# merged and deleted, fetching the new commits and ignoring them, with a green test
-# suite because the tests run against the stale tree.
-source=("${pkgname}::git+file://${startdir}/../../#branch=master")
+# Deliberately fragment-less: this builds whatever the surrounding checkout has
+# at HEAD, which is what both a local build and a CI run want. Do not pin
+# `#branch=master` here -- makepkg resolves a branch fragment to `origin/<name>`
+# in its working copy, and the detached checkout actions/checkout produces for a
+# pull_request has no local branches to mirror, so the build dies on
+# `fatal: invalid reference: origin/master`.
+#
+# The cost of no fragment is that the checkout follows refs/remotes/origin/HEAD,
+# which git writes once at clone time and no later fetch updates, so a *reused*
+# working copy can keep building a long-dead branch. Nothing here can fix that;
+# install.sh removes the cached clone before every build so one never persists.
+source=("${pkgname}::git+file://${startdir}/../../")
 sha256sums=('SKIP')
 
 pkgver() {
