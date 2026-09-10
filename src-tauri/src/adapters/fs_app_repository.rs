@@ -263,6 +263,7 @@ impl FsAppRepository {
             source,
             path: entry.path.to_string_lossy().to_string(),
             working_dir: entry.path().map(|s| s.to_string()),
+            terminal: entry.terminal(),
         })
     }
 
@@ -324,6 +325,7 @@ impl FsAppRepository {
                     source: AppSource::AppImage,
                     path: path.to_string_lossy().to_string(),
                     working_dir: None,
+                    terminal: false,
                 },
             );
         }
@@ -596,6 +598,40 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_entry_sets_terminal_true_from_desktop_entry() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+        write_desktop(
+            &apps_dir,
+            "term-app",
+            "[Desktop Entry]\nName=Term App\nExec=term-exec\nTerminal=true\nType=Application\n",
+        );
+
+        let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
+        let apps = repo.list_apps().unwrap();
+        assert_eq!(apps.len(), 1);
+        assert!(apps[0].terminal);
+    }
+
+    #[test]
+    fn test_parse_entry_sets_terminal_false_by_default() {
+        let dir = tempdir().unwrap();
+        let apps_dir = dir.path().join("applications");
+        std::fs::create_dir(&apps_dir).unwrap();
+        write_desktop(
+            &apps_dir,
+            "gui-app",
+            "[Desktop Entry]\nName=Gui App\nExec=gui-exec\nType=Application\n",
+        );
+
+        let repo = FsAppRepository::new_with_paths(Arc::new(MockIconResolver), vec![apps_dir]);
+        let apps = repo.list_apps().unwrap();
+        assert_eq!(apps.len(), 1);
+        assert!(!apps[0].terminal);
+    }
+
+    #[test]
     fn test_resolve_returns_cached_entry_without_rescan() {
         let dir = tempdir().unwrap();
         let apps_dir = dir.path().join("applications");
@@ -616,6 +652,7 @@ mod tests {
             source: AppSource::Desktop,
             path: "/nonexistent/cached-app.desktop".to_string(),
             working_dir: None,
+            terminal: false,
         };
         *repo.cache.lock().unwrap() = vec![cached.clone()];
 

@@ -1,6 +1,8 @@
 use crate::domain::apps::AppEntry;
+use crate::domain::config::AppConfig;
 use crate::ports::app_launcher_port::AppLauncher;
 use crate::ports::app_port::AppRepository;
+use crate::ports::config_port::ConfigService;
 use crate::state::AppState;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -101,18 +103,146 @@ fn generate_scope_name(app_id: &str) -> String {
     )
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TermArgStyle {
+    /// `<term> -e <argv...>` — argv elements appended individually after `-e`.
+    DashE,
+    /// `<term> -- <argv...>` — argv elements appended individually after `--`.
+    DoubleDash,
+}
+
+struct TerminalSpec {
+    /// Binary basename as it appears on $PATH, e.g. "alacritty".
+    program: &'static str,
+    style: TermArgStyle,
+}
+
+const KNOWN_TERMINALS: &[TerminalSpec] = &[
+    TerminalSpec {
+        program: "alacritty",
+        style: TermArgStyle::DashE,
+    },
+    TerminalSpec {
+        program: "kitty",
+        style: TermArgStyle::DashE,
+    },
+    TerminalSpec {
+        program: "foot",
+        style: TermArgStyle::DashE,
+    },
+    TerminalSpec {
+        program: "konsole",
+        style: TermArgStyle::DashE,
+    },
+    TerminalSpec {
+        program: "xterm",
+        style: TermArgStyle::DashE,
+    },
+    TerminalSpec {
+        program: "gnome-terminal",
+        style: TermArgStyle::DoubleDash,
+    },
+    TerminalSpec {
+        program: "wezterm",
+        style: TermArgStyle::DoubleDash,
+    },
+];
+
+/// Looks up the argument style for `program` by basename, defaulting to
+/// `TermArgStyle::DashE` when the basename isn't in `KNOWN_TERMINALS` -- a
+/// deliberate fallback, not a gap (see spec Open Questions).
+fn terminal_arg_style(program: &str) -> TermArgStyle {
+    let basename = std::path::Path::new(program)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or(program);
+    KNOWN_TERMINALS
+        .iter()
+        .find(|spec| spec.program == basename)
+        .map(|spec| spec.style)
+        .unwrap_or(TermArgStyle::DashE)
+}
+
+/// Builds `[terminal, "-e"|"--", ...argv]` as discrete `Vec<String>` elements --
+/// never re-serialized into a joined string and re-split.
+fn wrap_in_terminal(terminal: &str, style: TermArgStyle, argv: Vec<String>) -> Vec<String> {
+    let flag = match style {
+        TermArgStyle::DashE => "-e",
+        TermArgStyle::DoubleDash => "--",
+    };
+    let mut wrapped = Vec::with_capacity(argv.len() + 2);
+    wrapped.push(terminal.to_string());
+    wrapped.push(flag.to_string());
+    wrapped.extend(argv);
+    wrapped
+}
+
+/// Resolves which terminal emulator to use, in precedence order: `$TERMINAL` (read
+/// from the passed-in `env` snapshot, never `std::env::var` directly) -> the
+/// `AppConfig::terminal_emulator` key -> the first entry of `KNOWN_TERMINALS` (in
+/// table order) that `probe` reports as installed. Each step is skipped, not
+/// treated as fatal, when its candidate fails `probe`.
+fn resolve_terminal_emulator(
+    env: &HashMap<String, String>,
+    config: &AppConfig,
+    probe: impl Fn(&str) -> bool,
+) -> Option<String> {
+    if let Some(from_env) = env.get("TERMINAL") {
+        if probe(from_env) {
+            return Some(from_env.clone());
+        }
+    }
+
+    if let Some(from_config) = &config.terminal_emulator {
+        if probe(from_config) {
+            return Some(from_config.clone());
+        }
+    }
+
+    KNOWN_TERMINALS
+        .iter()
+        .find(|spec| probe(spec.program))
+        .map(|spec| spec.program.to_string())
+}
+
+/// Combines `build_exec_argv`, `entry.terminal`, and terminal resolution/wrapping into
+/// one `Result`-returning step: non-terminal entries pass through unchanged, terminal
+/// entries are wrapped with the resolved emulator's argv, and an unresolvable emulator
+/// is a visible `Err` naming the entry rather than a silent no-op.
+fn resolve_terminal_argv(
+    entry: &AppEntry,
+    env: &HashMap<String, String>,
+    config: &AppConfig,
+    probe: impl Fn(&str) -> bool,
+) -> Result<Vec<String>, String> {
+    let argv = build_exec_argv(&entry.exec)?;
+    if !entry.terminal {
+        return Ok(argv);
+    }
+    let terminal = resolve_terminal_emulator(env, config, probe)
+        .ok_or_else(|| format!("No terminal emulator found to launch {}", entry.name))?;
+    Ok(wrap_in_terminal(
+        &terminal,
+        terminal_arg_style(&terminal),
+        argv,
+    ))
+}
+
 pub fn launch_app_logic(
     repo: &dyn AppRepository,
     launcher: &dyn AppLauncher,
     id: &str,
     env: &HashMap<String, String>,
+    config: &dyn ConfigService,
 ) -> Result<(), String> {
     let entry = repo
         .resolve(id)
         .map_err(|e| format!("Failed to resolve app {id}: {e}"))?
         .ok_or_else(|| format!("No app found for id: {id}"))?;
 
-    let argv = build_exec_argv(&entry.exec)?;
+    let argv = resolve_terminal_argv(&entry, env, &config.load_config(), |p| {
+        which::which(p).is_ok()
+    })?;
     let scope_name = generate_scope_name(&entry.id);
     launcher.launch(&argv, env, entry.working_dir.as_deref(), &scope_name)
 }
@@ -124,6 +254,7 @@ pub async fn launch_app(state: State<'_, AppState>, id: String) -> Result<(), St
         &*state.app_launcher,
         &id,
         &state.env_port.snapshot(),
+        &*state.config_service,
     )
 }
 
@@ -149,7 +280,14 @@ mod tests {
     use crate::domain::apps::AppSource;
     use crate::ports::app_launcher_port::MockAppLauncher;
     use crate::ports::app_port::MockAppRepository;
+    use crate::ports::config_port::MockConfigService;
     use mockall::Predicate;
+
+    fn noop_config() -> MockConfigService {
+        let mut mock = MockConfigService::new();
+        mock.expect_load_config().returning(|| AppConfig::default());
+        mock
+    }
 
     #[test]
     fn test_list_apps() {
@@ -169,6 +307,7 @@ mod tests {
                 source: AppSource::Desktop,
                 path: "/tmp/test.desktop".to_string(),
                 working_dir: None,
+                terminal: false,
             }])
         });
 
@@ -200,7 +339,12 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    fn fixture_app_entry(id: &str, exec: &str, working_dir: Option<String>) -> AppEntry {
+    fn fixture_app_entry(
+        id: &str,
+        exec: &str,
+        working_dir: Option<String>,
+        terminal: bool,
+    ) -> AppEntry {
         AppEntry {
             id: id.to_string(),
             name: id.to_string(),
@@ -215,6 +359,7 @@ mod tests {
             source: AppSource::Desktop,
             path: format!("/tmp/{id}.desktop"),
             working_dir,
+            terminal,
         }
     }
 
@@ -304,7 +449,13 @@ mod tests {
         mock.expect_resolve().returning(|_| Ok(None));
         let launcher = MockAppLauncher::new();
 
-        let result = launch_app_logic(&mock, &launcher, "nonexistent", &HashMap::new());
+        let result = launch_app_logic(
+            &mock,
+            &launcher,
+            "nonexistent",
+            &HashMap::new(),
+            &noop_config(),
+        );
         assert!(result.is_err());
     }
 
@@ -315,7 +466,7 @@ mod tests {
             .returning(|_| Err("repository failure".to_string()));
         let launcher = MockAppLauncher::new();
 
-        let result = launch_app_logic(&mock, &launcher, "any", &HashMap::new());
+        let result = launch_app_logic(&mock, &launcher, "any", &HashMap::new(), &noop_config());
         assert!(result.is_err());
     }
 
@@ -327,6 +478,7 @@ mod tests {
             "app-with-cwd",
             &format!("sh -c 'pwd > {}'", marker.display()),
             Some(tempdir.path().to_string_lossy().to_string()),
+            false,
         );
 
         let mut mock = MockAppRepository::new();
@@ -335,7 +487,7 @@ mod tests {
         let launcher = SystemdScopeLauncher::with_availability_override(false);
 
         let snapshot: HashMap<String, String> = std::env::vars().collect();
-        let result = launch_app_logic(&mock, &launcher, "app-with-cwd", &snapshot);
+        let result = launch_app_logic(&mock, &launcher, "app-with-cwd", &snapshot, &noop_config());
         assert!(
             result.is_ok(),
             "launch_app_logic failed: {:?}",
@@ -403,8 +555,8 @@ mod tests {
     }
 
     #[test]
-    fn test_launch_app_logic_delegates_to_launcher() {
-        let entry = fixture_app_entry("app-a", "echo hi", Some("/tmp".to_string()));
+    fn test_launch_app_logic_non_terminal_entry_unaffected() {
+        let entry = fixture_app_entry("app-a", "echo hi", Some("/tmp".to_string()), false);
         let mut repo = MockAppRepository::new();
         repo.expect_resolve()
             .returning(move |_| Ok(Some(entry.clone())));
@@ -420,11 +572,250 @@ mod tests {
             })
             .returning(|_, _, _, _| Ok(()));
 
-        let result = launch_app_logic(&repo, &launcher, "app-a", &HashMap::new());
+        let result = launch_app_logic(&repo, &launcher, "app-a", &HashMap::new(), &noop_config());
         assert!(
             result.is_ok(),
             "launch_app_logic failed: {:?}",
             result.err()
+        );
+    }
+
+    #[cfg(unix)]
+    fn make_executable_fixture(dir: &std::path::Path, name: &str, contents: &str) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, contents).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn test_launch_app_logic_wraps_terminal_entry_argv() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture_path =
+            make_executable_fixture(tempdir.path(), "fake-term", "#!/bin/sh\nexit 0\n");
+
+        let entry = fixture_app_entry("btop", "btop", None, true);
+        let mut repo = MockAppRepository::new();
+        repo.expect_resolve()
+            .returning(move |_| Ok(Some(entry.clone())));
+
+        let mut config = MockConfigService::new();
+        let terminal_emulator = fixture_path.clone();
+        config.expect_load_config().returning(move || {
+            let mut cfg = AppConfig::default();
+            cfg.terminal_emulator = Some(terminal_emulator.clone());
+            cfg
+        });
+
+        let expected_argv = vec![fixture_path.clone(), "-e".to_string(), "btop".to_string()];
+        let mut launcher = MockAppLauncher::new();
+        launcher
+            .expect_launch()
+            .times(1)
+            .withf(move |argv, _env, _current_dir, _scope_name| argv == expected_argv.as_slice())
+            .returning(|_, _, _, _| Ok(()));
+
+        let result = launch_app_logic(&repo, &launcher, "btop", &HashMap::new(), &config);
+        assert!(
+            result.is_ok(),
+            "launch_app_logic failed: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_launch_app_logic_terminal_entry_reaches_real_launcher() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture_path = make_executable_fixture(
+            tempdir.path(),
+            "fake-term-e",
+            "#!/bin/sh\nshift\nexec \"$@\"\n",
+        );
+
+        let marker = unique_marker("terminal-e2e");
+        let entry = fixture_app_entry(
+            "term-app",
+            &format!("sh -c 'touch {}'", marker.display()),
+            None,
+            true,
+        );
+
+        let mut repo = MockAppRepository::new();
+        repo.expect_resolve()
+            .returning(move |_| Ok(Some(entry.clone())));
+
+        let mut config = MockConfigService::new();
+        let terminal_emulator = fixture_path.clone();
+        config.expect_load_config().returning(move || {
+            let mut cfg = AppConfig::default();
+            cfg.terminal_emulator = Some(terminal_emulator.clone());
+            cfg
+        });
+
+        let launcher = SystemdScopeLauncher::with_availability_override(false);
+        let snapshot: HashMap<String, String> = std::env::vars().collect();
+        let result = launch_app_logic(&repo, &launcher, "term-app", &snapshot, &config);
+        assert!(
+            result.is_ok(),
+            "launch_app_logic failed: {:?}",
+            result.err()
+        );
+
+        assert!(
+            wait_for_marker(&marker),
+            "wrapped terminal command never reached the real launcher"
+        );
+        let _ = std::fs::remove_file(&marker);
+    }
+
+    #[test]
+    fn test_wrap_in_terminal_dash_e_style() {
+        assert_eq!(
+            wrap_in_terminal("alacritty", TermArgStyle::DashE, vec!["btop".to_string()]),
+            vec![
+                "alacritty".to_string(),
+                "-e".to_string(),
+                "btop".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_wrap_in_terminal_double_dash_style() {
+        assert_eq!(
+            wrap_in_terminal(
+                "gnome-terminal",
+                TermArgStyle::DoubleDash,
+                vec!["htop".to_string()]
+            ),
+            vec![
+                "gnome-terminal".to_string(),
+                "--".to_string(),
+                "htop".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_terminal_arg_style_defaults_for_unknown_program() {
+        assert_eq!(
+            terminal_arg_style("/opt/custom/my-term"),
+            TermArgStyle::DashE
+        );
+    }
+
+    #[test]
+    fn test_terminal_arg_style_matches_by_basename() {
+        assert_eq!(
+            terminal_arg_style("/usr/bin/gnome-terminal"),
+            TermArgStyle::DoubleDash
+        );
+    }
+
+    #[test]
+    fn test_resolve_terminal_prefers_env_var() {
+        let mut env = HashMap::new();
+        env.insert("TERMINAL".to_string(), "alacritty".to_string());
+        let config = AppConfig::default();
+
+        let result = resolve_terminal_emulator(&env, &config, |p| p == "alacritty");
+        assert_eq!(result, Some("alacritty".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_terminal_env_var_not_installed_falls_through_to_config() {
+        let mut env = HashMap::new();
+        env.insert("TERMINAL".to_string(), "ghost-term".to_string());
+        let mut config = AppConfig::default();
+        config.terminal_emulator = Some("kitty".to_string());
+
+        let result = resolve_terminal_emulator(&env, &config, |p| p == "kitty");
+        assert_eq!(result, Some("kitty".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_terminal_config_key_used_when_env_absent() {
+        let env = HashMap::new();
+        let mut config = AppConfig::default();
+        config.terminal_emulator = Some("konsole".to_string());
+
+        let result = resolve_terminal_emulator(&env, &config, |p| p == "konsole");
+        assert_eq!(result, Some("konsole".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_terminal_config_key_not_installed_falls_through_to_probe_list() {
+        let env = HashMap::new();
+        let mut config = AppConfig::default();
+        config.terminal_emulator = Some("ghost-term".to_string());
+
+        let result = resolve_terminal_emulator(&env, &config, |p| p == "xterm");
+        assert_eq!(result, Some("xterm".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_terminal_probes_known_list_in_order() {
+        let env = HashMap::new();
+        let config = AppConfig::default();
+        let second_candidate = KNOWN_TERMINALS[1].program;
+
+        let result = resolve_terminal_emulator(&env, &config, |p| p == second_candidate);
+        assert_eq!(result, Some(second_candidate.to_string()));
+    }
+
+    #[test]
+    fn test_resolve_terminal_returns_none_when_nothing_resolves() {
+        let env = HashMap::new();
+        let config = AppConfig::default();
+
+        let result = resolve_terminal_emulator(&env, &config, |_| false);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_terminal_argv_wraps_terminal_entry() {
+        let entry = fixture_app_entry("btop", "btop", None, true);
+        let env = HashMap::new();
+        let mut config = AppConfig::default();
+        config.terminal_emulator = Some("alacritty".to_string());
+
+        let result = resolve_terminal_argv(&entry, &env, &config, |p| p == "alacritty");
+
+        assert_eq!(
+            result,
+            Ok(vec![
+                "alacritty".to_string(),
+                "-e".to_string(),
+                "btop".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn test_resolve_terminal_argv_passes_through_non_terminal_entry() {
+        let entry = fixture_app_entry("echo hi", "echo hi", None, false);
+        let env = HashMap::new();
+        let config = AppConfig::default();
+
+        let result = resolve_terminal_argv(&entry, &env, &config, |_| true);
+
+        assert_eq!(result, Ok(build_exec_argv(&entry.exec).unwrap()));
+    }
+
+    #[test]
+    fn test_resolve_terminal_argv_errs_when_unresolvable() {
+        let entry = fixture_app_entry("btop", "btop", None, true);
+        let env = HashMap::new();
+        let config = AppConfig::default();
+
+        let result = resolve_terminal_argv(&entry, &env, &config, |_| false);
+
+        let err = result.expect_err("expected Err when no terminal emulator resolves");
+        assert!(
+            err.contains(&entry.name),
+            "error {err:?} does not contain entry name {:?}",
+            entry.name
         );
     }
 

@@ -103,4 +103,35 @@ mod tests {
         // Should have defaults applied
         assert_eq!(config.preferred_model, "local");
     }
+
+    #[test]
+    fn test_terminal_emulator_round_trips() {
+        let dir = tempdir().unwrap();
+        let service = FsConfigService::new_with_root(dir.path().to_path_buf());
+
+        let config = AppConfig {
+            terminal_emulator: Some("kitty".to_string()),
+            ..Default::default()
+        };
+
+        service.save_config(&config).expect("Failed to save config");
+
+        let loaded_config = service.load_config();
+        assert_eq!(loaded_config.terminal_emulator, Some("kitty".to_string()));
+    }
+
+    #[test]
+    fn test_load_config_without_terminal_emulator_key_still_parses() {
+        let dir = tempdir().unwrap();
+        let service = FsConfigService::new_with_root(dir.path().to_path_buf());
+
+        fs::write(
+            dir.path().join("config.json"),
+            r#"{"preferred_model": "local"}"#,
+        )
+        .expect("Failed to write legacy config.json");
+
+        let config = service.load_config();
+        assert_eq!(config.terminal_emulator, None);
+    }
 }

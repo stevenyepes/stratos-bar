@@ -20,6 +20,9 @@
       />
     </div>
 
+    <!-- Launch error banner -->
+    <div v-if="launchError" class="launch-error-banner">{{ launchError }}</div>
+
     <!-- Main Content Area -->
     <div class="main-content">
         <!-- Results Column -->
@@ -218,7 +221,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import CurrencyResult from '../CurrencyResult.vue'
 import { useOmnibar } from '../../composables/useOmnibar'
@@ -252,6 +255,12 @@ function handleEsc() {
     emit('close')
   }
 }
+
+const launchError = ref('')
+
+watch(query, () => {
+  launchError.value = ''
+})
 
 
 const isFileSearchMode = computed(() => {
@@ -364,11 +373,13 @@ async function executeAction(index) {
 async function executeApp(app) {
   try {
     await invoke('launch_app', { id: app.id })
+    launchError.value = ''
     recordAction(app)
     query.value = ''
     await hideWindow()
   } catch(e) {
     console.error('Failed to launch app', e)
+    launchError.value = typeof e === 'string' ? e : (e?.message || 'Failed to launch app')
   }
 }
 
@@ -498,6 +509,17 @@ function getFileColor(path) {
 
 .search-input::placeholder {
   color: var(--theme-text-dimmer);
+}
+
+.launch-error-banner {
+  margin: 0 var(--space-6) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
 }
 
 /* MAIN LAYOUT */

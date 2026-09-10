@@ -20,6 +20,7 @@ pub struct AppEntry {
     pub source: AppSource,
     pub path: String,
     pub working_dir: Option<String>,
+    pub terminal: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -53,6 +54,7 @@ mod tests {
             source: AppSource::Desktop,
             path: "/usr/share/applications/firefox.desktop".to_string(),
             working_dir: None,
+            terminal: false,
         };
 
         assert_eq!(app.id, "firefox");
