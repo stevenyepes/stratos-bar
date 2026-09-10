@@ -15,6 +15,12 @@ fn capture_env_snapshot() -> HashMap<String, String> {
 fn main() {
     let env_snapshot = capture_env_snapshot();
 
+    if std::env::args().any(|a| a == "--diagnose") {
+        let report = stratos_bar_lib::diagnose::collect_report(&env_snapshot);
+        println!("{}", report.format());
+        std::process::exit(0);
+    }
+
     let input = stratos_bar_lib::adapters::webkit_nvidia_quirk::detect_quirk_input();
     let action = stratos_bar_lib::adapters::webkit_nvidia_quirk::decide_quirk(&input);
     stratos_bar_lib::adapters::webkit_nvidia_quirk::apply_quirk(action);

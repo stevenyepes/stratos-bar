@@ -1,5 +1,6 @@
 pub mod adapters;
 pub mod commands;
+pub mod diagnose;
 pub mod domain;
 pub mod ports;
 pub mod state;

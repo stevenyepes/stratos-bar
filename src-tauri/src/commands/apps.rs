@@ -104,7 +104,7 @@ fn generate_scope_name(app_id: &str) -> String {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum TermArgStyle {
+pub(crate) enum TermArgStyle {
     /// `<term> -e <argv...>` — argv elements appended individually after `-e`.
     DashE,
     /// `<term> -- <argv...>` — argv elements appended individually after `--`.
@@ -151,7 +151,7 @@ const KNOWN_TERMINALS: &[TerminalSpec] = &[
 /// Looks up the argument style for `program` by basename, defaulting to
 /// `TermArgStyle::DashE` when the basename isn't in `KNOWN_TERMINALS` -- a
 /// deliberate fallback, not a gap (see spec Open Questions).
-fn terminal_arg_style(program: &str) -> TermArgStyle {
+pub(crate) fn terminal_arg_style(program: &str) -> TermArgStyle {
     let basename = std::path::Path::new(program)
         .file_name()
         .and_then(|f| f.to_str())
@@ -182,7 +182,7 @@ fn wrap_in_terminal(terminal: &str, style: TermArgStyle, argv: Vec<String>) -> V
 /// `AppConfig::terminal_emulator` key -> the first entry of `KNOWN_TERMINALS` (in
 /// table order) that `probe` reports as installed. Each step is skipped, not
 /// treated as fatal, when its candidate fails `probe`.
-fn resolve_terminal_emulator(
+pub(crate) fn resolve_terminal_emulator(
     env: &HashMap<String, String>,
     config: &AppConfig,
     probe: impl Fn(&str) -> bool,

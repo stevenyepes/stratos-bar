@@ -724,13 +724,14 @@ bind = $mainMod, SPACE, exec, /path/to/stratos-bar_0.1.1_amd64.AppImage
 ### Wayland Issues
 - **Clipboard**: Ensure `wl-clipboard` is installed
 - **Transparency**: Application uses opaque background (transparent mode caused ghosting)
-- **Black window on NVIDIA**: The app detects your GPU and session type at startup and conditionally sets `WEBKIT_DISABLE_DMABUF_RENDERER` or `__NV_DISABLE_EXPLICIT_SYNC` — see [BUILD.md's Troubleshooting section](BUILD.md#empty-window--black-screen) for the full detection matrix and what to do if it picks the wrong one on your machine. This is a permanent workaround for [WebKit bug 262607](https://bugs.webkit.org/show_bug.cgi?id=262607) (RESOLVED WONTFIX), not a temporary one.
+- **Black window on NVIDIA**: Before filing a bug, run `stratos-bar --diagnose` — it prints a report (GPU/quirk detection, session type, launcher backend, terminal resolution, icon theme, app count) suitable for pasting into a bug report. The app detects your GPU and session type at startup and conditionally sets `WEBKIT_DISABLE_DMABUF_RENDERER` or `__NV_DISABLE_EXPLICIT_SYNC` — see [BUILD.md's Troubleshooting section](BUILD.md#empty-window--black-screen) for the full detection matrix and what to do if it picks the wrong one on your machine. This is a permanent workaround for [WebKit bug 262607](https://bugs.webkit.org/show_bug.cgi?id=262607) (RESOLVED WONTFIX), not a temporary one.
 
 ### Ollama Not Found
 - Verify Ollama is running: `curl http://localhost:11434/api/tags`
 - Check `local_model_url` in config
 
 ### Window Not Showing
+- Run `stratos-bar --diagnose` first — it prints a report (GPU/quirk detection, session type, launcher backend, terminal resolution, icon theme, app count) and should be run, with its output included, before filing an issue
 - Check global shortcut conflicts (Super+Space)
 - Verify single instance isn't blocking
 
