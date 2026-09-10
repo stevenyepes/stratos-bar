@@ -165,6 +165,10 @@ impl CachedIconResolver {
         &self.icon_roots
     }
 
+    pub fn theme(&self) -> &str {
+        &self.theme
+    }
+
     /// Serves raw icon bytes for the future protocol handler. `requested_path`
     /// may arrive raw from a webview URI request, so it is canonicalized here
     /// rather than trusted -- callers must not pre-canonicalize and expect that
@@ -337,6 +341,12 @@ mod tests {
                 dir
             })
             .path()
+    }
+
+    #[test]
+    fn test_theme_accessor_returns_configured_theme() {
+        let resolver = CachedIconResolver::new_with_theme("hicolor".to_string());
+        assert_eq!(resolver.theme(), "hicolor");
     }
 
     #[test]

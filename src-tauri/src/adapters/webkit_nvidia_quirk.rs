@@ -75,9 +75,17 @@ pub fn decide_quirk(input: &QuirkInput) -> QuirkAction {
 /// Scans `/sys/class/drm/*` for an NVIDIA GPU. Fails open to `GpuVendor::Other`
 /// on any I/O error or unexpected sysfs layout.
 fn detect_gpu_vendor() -> GpuVendor {
+    detect_gpu_vendor_verbose().0
+}
+
+/// Same detection as `detect_gpu_vendor`, plus a human-readable evidence
+/// string describing which sysfs signal matched (or that none did). Exists so
+/// callers like the diagnose module can surface *why* a vendor was resolved
+/// without re-implementing the sysfs scan.
+pub fn detect_gpu_vendor_verbose() -> (GpuVendor, String) {
     let entries = match std::fs::read_dir("/sys/class/drm") {
         Ok(entries) => entries,
-        Err(_) => return GpuVendor::Other,
+        Err(_) => return (GpuVendor::Other, "no NVIDIA device found under /sys/class/drm".to_string()),
     };
 
     for entry in entries.flatten() {
@@ -102,45 +110,59 @@ fn detect_gpu_vendor() -> GpuVendor {
             .unwrap_or(false);
 
         if is_boot_gpu || driver_is_nvidia {
-            return GpuVendor::Nvidia;
+            let signal = if is_boot_gpu { "boot_vga" } else { "driver" };
+            return (
+                GpuVendor::Nvidia,
+                format!("NVIDIA device at {} ({})", entry.path().display(), signal),
+            );
         }
     }
 
-    GpuVendor::Other
+    (
+        GpuVendor::Other,
+        "no NVIDIA device found under /sys/class/drm".to_string(),
+    )
 }
 
 /// Resolves the windowing session type from environment variables, in order:
 /// `GDK_BACKEND` -> `XDG_SESSION_TYPE` -> `WAYLAND_DISPLAY`/`DISPLAY` presence.
 /// Fails open to `SessionType::Unknown` if none resolve.
 fn detect_session_type() -> SessionType {
+    detect_session_type_verbose().0
+}
+
+/// Same detection as `detect_session_type`, plus the name of the source that
+/// resolved it (`"GDK_BACKEND"`, `"XDG_SESSION_TYPE"`, `"WAYLAND_DISPLAY"`,
+/// `"DISPLAY"`, or `"none"`).
+pub fn detect_session_type_verbose() -> (SessionType, &'static str) {
     if let Ok(backend) = std::env::var("GDK_BACKEND") {
         let backend = backend.to_ascii_lowercase();
         if backend.contains("wayland") {
-            return SessionType::Wayland;
+            return (SessionType::Wayland, "GDK_BACKEND");
         }
         if backend.contains("x11") {
-            return SessionType::X11;
+            return (SessionType::X11, "GDK_BACKEND");
         }
     }
 
     if let Ok(session_type) = std::env::var("XDG_SESSION_TYPE") {
         let session_type = session_type.to_ascii_lowercase();
         if session_type == "wayland" {
-            return SessionType::Wayland;
+            return (SessionType::Wayland, "XDG_SESSION_TYPE");
         }
         if session_type == "x11" {
-            return SessionType::X11;
+            return (SessionType::X11, "XDG_SESSION_TYPE");
         }
     }
 
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        return SessionType::Wayland;
+        return (SessionType::Wayland, "WAYLAND_DISPLAY");
     }
     if std::env::var("DISPLAY").is_ok() {
-        return SessionType::X11;
+        return (SessionType::X11, "DISPLAY");
     }
 
-    SessionType::Unknown
+    (SessionType::Unknown, "none")
 }
 
 /// True when `HYPRLAND_INSTANCE_SIGNATURE` is set, consistent with the
@@ -282,4 +304,64 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn detect_gpu_vendor_delegates_to_verbose() {
+        let (verbose_vendor, evidence) = detect_gpu_vendor_verbose();
+        assert_eq!(detect_gpu_vendor(), verbose_vendor);
+        assert!(!evidence.is_empty());
+    }
+
+    #[test]
+    fn detect_session_type_delegates_to_verbose() {
+        let (verbose_session_type, _source) = detect_session_type_verbose();
+        assert_eq!(detect_session_type(), verbose_session_type);
+    }
+
+    #[test]
+    fn detect_session_type_verbose_names_gdk_backend_source() {
+        // Serialize env mutation against other tests in this process; this
+        // detector reads real env vars, matching every other detector here.
+        let _guard = ENV_TEST_LOCK.lock().unwrap();
+        let prev = std::env::var("GDK_BACKEND").ok();
+        std::env::set_var("GDK_BACKEND", "wayland");
+
+        let (session_type, source) = detect_session_type_verbose();
+        assert_eq!(session_type, SessionType::Wayland);
+        assert_eq!(source, "GDK_BACKEND");
+
+        match prev {
+            Some(value) => std::env::set_var("GDK_BACKEND", value),
+            None => std::env::remove_var("GDK_BACKEND"),
+        }
+    }
+
+    #[test]
+    fn detect_session_type_verbose_names_none_source_when_unresolved() {
+        let _guard = ENV_TEST_LOCK.lock().unwrap();
+        let prev_vars: Vec<(&str, Option<String>)> = [
+            "GDK_BACKEND",
+            "XDG_SESSION_TYPE",
+            "WAYLAND_DISPLAY",
+            "DISPLAY",
+        ]
+        .iter()
+        .map(|key| (*key, std::env::var(key).ok()))
+        .collect();
+        for (key, _) in &prev_vars {
+            std::env::remove_var(key);
+        }
+
+        let (session_type, source) = detect_session_type_verbose();
+        assert_eq!(session_type, SessionType::Unknown);
+        assert_eq!(source, "none");
+
+        for (key, value) in prev_vars {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            }
+        }
+    }
+
+    static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }
