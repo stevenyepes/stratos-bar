@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - **BUILD.md / README.md**: Replaced the outdated claim of an unconditional `WEBKIT_DISABLE_DMABUF_RENDERER=1` fix with the actual GPU/session/Hyprland/egl-wayland2 detection matrix used by `webkit_nvidia_quirk.rs`, including its fail-open behavior and the WebKit bug 262607 (RESOLVED WONTFIX) context. Removed the stale `WEBKIT_DISABLE_COMPOSITING_MODE=1` Wayland tip and cross-linked README's Development Tips and Troubleshooting sections to BUILD.md.
+- **README.md**: Removed the "From AUR (recommended)" install path (`yay -S stratos-bar`) for Arch Linux / Manjaro / CachyOS / Endeavour — no AUR package exists or can exist given the PKGBUILD's local-path source. Replaced with a single git-clone + `./pkg/arch/install.sh` path, and documented the script's pre-flight command checks and its several-minutes full Tauri build time.
 
 ## [0.1.2] - 2026-01-10
 

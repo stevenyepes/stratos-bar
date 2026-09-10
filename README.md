@@ -206,19 +206,14 @@ chmod +x stratos-bar_0.1.2_amd64.AppImage
 
 ### Arch Linux / Manjaro / CachyOS / Endeavour
 
-**From AUR (recommended):**
-```bash
-yay -S stratos-bar
-```
-
-**From source:**
+There is no published AUR package — build from source with the included install script:
 ```bash
 git clone https://github.com/stevenyepes/stratos-bar.git
-cd stratos-bar/pkg/arch
-./install.sh
+cd stratos-bar
+./pkg/arch/install.sh
 ```
 
-`install.sh` runs a pre-flight check for required system packages (`webkit2gtk-4.1`, `gtk3`, `libappindicator-gtk3`) and then builds + installs via `makepkg -si`.
+`install.sh` first checks that `makepkg`, `pacman`, `npm`, `cargo`, `node`, and `git` are available, then checks the runtime packages (`webkit2gtk-4.1`, `gtk3`, `libappindicator-gtk3`), and only then builds + installs via `makepkg -si`. This compiles the full Tauri app (Rust backend and Vue frontend), so expect the build to take several minutes, not seconds.
 
 ---
 
