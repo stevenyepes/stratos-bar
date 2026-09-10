@@ -13,7 +13,13 @@ optdepends=(
     'hyprland: Native window management support'
 )
 makedepends=('npm' 'cargo' 'nodejs' 'git')
-source=("${pkgname}::git+file://${startdir}/../../")
+# The #branch fragment is load-bearing, not decoration. Without it makepkg checks
+# out whatever refs/remotes/origin/HEAD names in its cached working copy -- a ref
+# git writes once, at clone time, and no later fetch updates. A cache first seeded
+# while this repo sat on a topic branch then keeps building that branch after it is
+# merged and deleted, fetching the new commits and ignoring them, with a green test
+# suite because the tests run against the stale tree.
+source=("${pkgname}::git+file://${startdir}/../../#branch=master")
 sha256sums=('SKIP')
 
 pkgver() {
