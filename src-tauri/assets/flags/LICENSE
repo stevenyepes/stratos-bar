@@ -1,0 +1,28 @@
+Vendored currency flag assets
+=============================
+
+The SVG files in this directory are simplified circular renditions of national
+flags (plus a Bitcoin mark and an `xx` "unknown" placeholder), drawn for
+stratos-bar so the currency converter renders without contacting any third-party
+CDN at runtime.
+
+They are original drawings authored for this project. They are NOT copied from,
+and carry no obligations toward, circle-flags or any other upstream flag set.
+The designs they depict are national symbols, which are not subject to copyright.
+
+To the extent that any copyright exists in these files, it is dedicated to the
+public domain under CC0 1.0 Universal:
+
+  https://creativecommons.org/publicdomain/zero/1.0/
+
+  The person who associated a work with this deed has dedicated the work to the
+  public domain by waiving all of their rights to the work worldwide under
+  copyright law, including all related and neighboring rights, to the extent
+  allowed by law. You can copy, modify, distribute and perform the work, even for
+  commercial purposes, all without asking permission.
+
+  THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+
+Note that a public-domain copyright dedication says nothing about trademark or
+about national flag-usage statutes, which vary by country and are unaffected by
+this file.

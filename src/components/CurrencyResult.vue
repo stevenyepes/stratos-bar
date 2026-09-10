@@ -54,6 +54,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { convertFileSrc } from '@tauri-apps/api/core'
 
 const props = defineProps({
   data: {
@@ -62,7 +63,8 @@ const props = defineProps({
   }
 })
 
-// Currency Code to Country Code Mapping for circle-flags
+// Currency code -> country code for the flag SVGs vendored under
+// `src-tauri/assets/flags/`, served by the `stratos-icon` protocol handler.
 const countryMap = {
   'USD': 'us', 'EUR': 'eu', 'GBP': 'gb', 'JPY': 'jp',
   'CNY': 'cn', 'INR': 'in', 'CAD': 'ca', 'AUD': 'au',
@@ -71,16 +73,23 @@ const countryMap = {
   'ZAR': 'za', 'TRY': 'tr', 'SEK': 'se', 'NOK': 'no',
   'COP': 'co', 'ARS': 'ar', 'CLP': 'cl', 'PEN': 'pe', 'UYU': 'uy',
   'PHP': 'ph', 'IDR': 'id', 'THB': 'th', 'MYR': 'my', 'VND': 'vn',
-  'BTC': 'btc' // circle-flags supports btc
+  'BTC': 'btc'
 }
 
+// `xx` is the vendored placeholder for any currency we have no flag for. The Rust
+// side falls back to it too, so an unmapped code can never yield a broken image.
+const UNKNOWN_FLAG_URL = convertFileSrc('flags/xx.svg', 'stratos-icon')
+
 function getFlagUrl(currencyCode) {
-  const code = countryMap[currencyCode] || 'xx' // xx is often placeholder
-  return `https://hatscripts.github.io/circle-flags/flags/${code}.svg`
+  const code = countryMap[currencyCode]
+  if (!code) return UNKNOWN_FLAG_URL
+  return convertFileSrc(`flags/${code}.svg`, 'stratos-icon')
 }
 
 function handleFlagError(e) {
-  e.target.src = 'https://hatscripts.github.io/circle-flags/flags/xx.svg'
+  // Guard against a failing placeholder retrying itself forever.
+  if (e.target.src === UNKNOWN_FLAG_URL) return
+  e.target.src = UNKNOWN_FLAG_URL
 }
 
 const formattedResult = computed(() => {
