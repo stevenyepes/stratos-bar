@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window. Carries no filesystem scope on purpose: the only frontend fs consumer is MatugenSkill's readFile on a dialog-picked path, and tauri-plugin-dialog grants that exact path at runtime (allow_file), which tauri-plugin-fs honours independently of any static scope. Everything else reaches the filesystem through this app's own commands, which are not ACL-gated, or through the asset: handler, which is gated by PreviewGrants.",
   "windows": [
     "main"
   ],
@@ -15,32 +15,6 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "dialog:default",
-    "fs:allow-home-read-recursive",
-    {
-      "identifier": "fs:allow-read",
-      "options": {
-        "scope": [
-          "/usr/share/icons/**",
-          "/usr/share/pixmaps/**",
-          "$HOME/.local/share/icons/**",
-          "$HOME/.config/**",
-          "$HOME/.steam/root/appcache/librarycache/**",
-          "$HOME/**"
-        ]
-      }
-    },
-    {
-      "identifier": "core:image:allow-from-path",
-      "options": {
-        "scope": [
-          "/usr/share/icons/**",
-          "/usr/share/pixmaps/**",
-          "$HOME/.local/share/icons/**",
-          "$HOME/.config/**",
-          "$HOME/.steam/root/appcache/librarycache/**",
-          "$HOME/**"
-        ]
-      }
-    }
+    "fs:allow-read-file"
   ]
 }

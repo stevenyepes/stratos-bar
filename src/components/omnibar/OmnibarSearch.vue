@@ -57,7 +57,7 @@
                    @click="executeAction(index + 1)"
                  >
                    <div class="result-icon">
-                       <img v-if="action.icon && action.kind === 'app'" :src="convertFileSrc(action.icon)" width="24" height="24" />
+                       <img v-if="action.icon && action.kind === 'app'" :src="convertFileSrc(action.icon, 'stratos-icon')" width="24" height="24" />
                        <span v-else-if="action.kind === 'app'">🚀</span>
                        <span v-else-if="action.kind === 'script'">💻</span>
                        <span v-else-if="action.kind === 'ai'">🤖</span>
@@ -125,7 +125,7 @@
                   @click="focusWindow(win)"
                 >
                   <div class="result-icon">
-                    <img v-if="win.icon" :src="convertFileSrc(win.icon)" width="24" height="24" />
+                    <img v-if="win.icon" :src="convertFileSrc(win.icon, 'stratos-icon')" width="24" height="24" />
                     <span v-else>🔲</span>
                   </div>
                   <div class="result-content">
@@ -146,7 +146,7 @@
                   @click="executeApp(app)"
                 >
                   <div class="result-icon">
-                    <img v-if="app.icon" :src="convertFileSrc(app.icon)" width="24" height="24" />
+                    <img v-if="app.icon" :src="convertFileSrc(app.icon, 'stratos-icon')" width="24" height="24" />
                     <span v-else>📦</span>
                   </div>
                   <div class="result-content">
