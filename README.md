@@ -419,7 +419,7 @@ npm run tauri build
 1. **Hot Reload**: Frontend changes auto-reload with Vite
 2. **Rust Changes**: Require Tauri dev restart
 3. **Console Logs**: Check DevTools (Ctrl+Shift+I in dev mode)
-4. **Wayland Issues**: Set `WEBKIT_DISABLE_COMPOSITING_MODE=1` if needed
+4. **Wayland Issues**: On NVIDIA GPUs, the app auto-detects the right WebKit rendering workaround at launch — see [BUILD.md's Troubleshooting section](BUILD.md#empty-window--black-screen) if you see a black window
 
 ---
 
@@ -724,6 +724,7 @@ bind = $mainMod, SPACE, exec, /path/to/stratos-bar_0.1.1_amd64.AppImage
 ### Wayland Issues
 - **Clipboard**: Ensure `wl-clipboard` is installed
 - **Transparency**: Application uses opaque background (transparent mode caused ghosting)
+- **Black window on NVIDIA**: The app detects your GPU and session type at startup and conditionally sets `WEBKIT_DISABLE_DMABUF_RENDERER` or `__NV_DISABLE_EXPLICIT_SYNC` — see [BUILD.md's Troubleshooting section](BUILD.md#empty-window--black-screen) for the full detection matrix and what to do if it picks the wrong one on your machine. This is a permanent workaround for [WebKit bug 262607](https://bugs.webkit.org/show_bug.cgi?id=262607) (RESOLVED WONTFIX), not a temporary one.
 
 ### Ollama Not Found
 - Verify Ollama is running: `curl http://localhost:11434/api/tags`
