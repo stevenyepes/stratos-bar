@@ -1,4 +1,5 @@
 use crate::ports::ai_port::AiService;
+use crate::ports::app_launcher_port::AppLauncher;
 use crate::ports::app_port::AppRepository;
 use crate::ports::config_port::ConfigService;
 use crate::ports::env_port::EnvironmentPort;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 
 pub struct AppState {
     pub app_repository: Arc<dyn AppRepository>,
+    pub app_launcher: Arc<dyn AppLauncher>,
     pub window_service: Arc<dyn WindowService>,
     pub config_service: Arc<dyn ConfigService>,
     pub icon_resolver: Arc<dyn IconResolver>,

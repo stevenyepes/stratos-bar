@@ -1,4 +1,5 @@
 pub mod ai_port;
+pub mod app_launcher_port;
 pub mod app_port;
 pub mod config_port;
 pub mod env_port;

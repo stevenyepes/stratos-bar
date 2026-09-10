@@ -48,7 +48,7 @@ impl HistoryRepository for FileHistoryAdapter {
         let mut actions = cache.clone();
 
         // Sort by last_accessed descending
-        actions.sort_by(|a, b| b.last_accessed.cmp(&a.last_accessed));
+        actions.sort_by_key(|a| std::cmp::Reverse(a.last_accessed));
 
         Ok(actions.into_iter().take(limit).collect())
     }
@@ -74,7 +74,7 @@ impl HistoryRepository for FileHistoryAdapter {
         if cache.len() > 100 {
             // Remove least recently used or least frequent.
             // For now simple LRU removal
-            cache.sort_by(|a, b| b.last_accessed.cmp(&a.last_accessed));
+            cache.sort_by_key(|a| std::cmp::Reverse(a.last_accessed));
             cache.truncate(100);
         }
 
@@ -116,7 +116,7 @@ impl HistoryRepository for FileHistoryAdapter {
         let old_actions = std::mem::take(&mut *cache);
         let mut merged: Vec<Action> = Vec::with_capacity(old_actions.len());
 
-        for (action, target) in old_actions.into_iter().zip(targets.into_iter()) {
+        for (action, target) in old_actions.into_iter().zip(targets) {
             let final_id = target.unwrap_or_else(|| action.id.clone());
             if let Some(existing) = merged.iter_mut().find(|a: &&mut Action| a.id == final_id) {
                 existing.frequency += action.frequency;

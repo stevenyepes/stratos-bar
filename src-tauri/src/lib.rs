@@ -14,6 +14,7 @@ use adapters::google_translation_service::GoogleTranslationService;
 use adapters::http_ai_service::HttpAiService;
 use adapters::linux_window_service::LinuxWindowService;
 use adapters::process_environment::ProcessEnvironment;
+use adapters::systemd_launcher::SystemdScopeLauncher;
 use ports::app_port::AppRepository;
 use ports::history::HistoryRepository;
 use state::AppState;
@@ -43,6 +44,7 @@ pub fn run(env_snapshot: HashMap<String, String>) {
             let command_executor = Arc::new(adapters::linux_window_service::StdCommandExecutor);
             let window_service = Arc::new(LinuxWindowService::new(command_executor));
             let ai_service = Arc::new(HttpAiService::new());
+            let app_launcher = Arc::new(SystemdScopeLauncher::new());
 
             let app_data_dir = app
                 .path()
@@ -55,6 +57,7 @@ pub fn run(env_snapshot: HashMap<String, String>) {
             // Manage State
             app.manage(AppState {
                 app_repository: app_repository.clone(),
+                app_launcher,
                 window_service,
                 config_service: config_service.clone(),
                 icon_resolver: icon_resolver.clone(),

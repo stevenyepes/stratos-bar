@@ -11,6 +11,12 @@ pub struct HttpAiService {
     openai_base_url: String,
 }
 
+impl Default for HttpAiService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HttpAiService {
     pub fn new() -> Self {
         Self {
@@ -102,8 +108,7 @@ impl AiService for HttpAiService {
                         let mut content = String::new();
                         for line in chunk_str.lines() {
                             let line = line.trim();
-                            if line.starts_with("data: ") {
-                                let data = &line[6..];
+                            if let Some(data) = line.strip_prefix("data: ") {
                                 if data == "[DONE]" {
                                     break;
                                 }
@@ -239,9 +244,11 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let mut config = AppConfig::default();
-        config.preferred_model = "local".to_string();
-        config.local_model_url = Some(mock_server.uri());
+        let config = AppConfig {
+            preferred_model: "local".to_string(),
+            local_model_url: Some(mock_server.uri()),
+            ..Default::default()
+        };
 
         let stream = service.stream_completion(&config, vec![]).await.unwrap();
         let result: Vec<String> = stream
@@ -279,9 +286,11 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let mut config = AppConfig::default();
-        config.preferred_model = "cloud".to_string();
-        config.openai_api_key = Some("test-key".to_string());
+        let config = AppConfig {
+            preferred_model: "cloud".to_string(),
+            openai_api_key: Some("test-key".to_string()),
+            ..Default::default()
+        };
 
         let stream = service.stream_completion(&config, vec![]).await.unwrap();
         let result: Vec<String> = stream
