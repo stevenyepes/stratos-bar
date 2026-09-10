@@ -8,6 +8,7 @@ pub mod utils;
 
 use adapters::cached_icon_resolver::{CachedIconResolver, IconAccessError};
 use adapters::file_history::FileHistoryAdapter;
+use adapters::flag_assets;
 use adapters::fs_app_repository::FsAppRepository;
 use adapters::fs_config_service::FsConfigService;
 use adapters::google_translation_service::GoogleTranslationService;
@@ -114,6 +115,18 @@ pub fn run(env_snapshot: HashMap<String, String>) {
             let raw_path = request.uri().path();
             let encoded = raw_path.strip_prefix('/').unwrap_or(raw_path);
             let decoded_path = percent_decode(encoded);
+
+            // Vendored currency flags ship inside the binary, so they answer before the
+            // disk-backed resolver ever sees the path; every other request falls through
+            // to the icon-theme lookup below unchanged.
+            if let Some(code) = flag_assets::flag_code_from_path(&decoded_path) {
+                let mut response = http::Response::new(flag_assets::lookup(code).to_vec());
+                response.headers_mut().insert(
+                    http::header::CONTENT_TYPE,
+                    http::HeaderValue::from_static("image/svg+xml"),
+                );
+                return response;
+            }
 
             match icon_resolver_for_protocol.serve_icon_bytes(&decoded_path) {
                 Ok(bytes) => {

@@ -772,3 +772,7 @@ Built with:
 - [Vue](https://vuejs.org/) - Progressive JavaScript framework
 - [Vuetify](https://vuetifyjs.com/) - Material Design component library
 - [Ollama](https://ollama.ai/) - Local LLM runtime
+
+Currency flags are drawn in-house and vendored under `src-tauri/assets/flags/` so the
+converter renders offline with no third-party CDN — see
+[`src-tauri/assets/flags/LICENSE`](src-tauri/assets/flags/LICENSE) (CC0 1.0).
