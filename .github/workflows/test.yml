@@ -3,10 +3,40 @@ name: Test
 on:
   push:
     branches: [ master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ master ]
 
 jobs:
+  version-agreement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - name: Check version agreement
+        run: |
+          PKG=$(jq -r .version package.json)
+          CARGO=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          TAURI=$(jq -r .version src-tauri/tauri.conf.json)
+
+          if [ "$PKG" != "$CARGO" ] || [ "$PKG" != "$TAURI" ]; then
+            echo "::error::Version mismatch: package.json=$PKG, Cargo.toml=$CARGO, tauri.conf.json=$TAURI"
+            exit 1
+          fi
+
+          echo "package.json, Cargo.toml, and tauri.conf.json agree on version $PKG"
+
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG_VERSION=${GITHUB_REF#refs/tags/v}
+            if [ "$TAG_VERSION" != "$PKG" ]; then
+              echo "::error::Tag $GITHUB_REF (version $TAG_VERSION) does not match file version $PKG"
+              exit 1
+            fi
+            echo "Tag $GITHUB_REF matches file version $PKG"
+          fi
+
   test-frontend:
     runs-on: ubuntu-latest
     steps:

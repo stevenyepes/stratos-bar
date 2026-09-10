@@ -77,6 +77,26 @@ fixed) or the underlying dependency is actually upgraded/patched. Don't set a
 far-future date to make the problem go away — pick a date you're actually willing to
 revisit.
 
+## Releasing
+
+The release version has a single source of truth enforced by CI: `package.json`,
+`src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` must all carry the same version
+string, and the git tag used to trigger a release must match it too. The
+`version-agreement` job in `test.yml` checks this on every push, pull request, and tag
+push.
+
+To cut a release:
+
+1. Bump the version in `package.json`, `src-tauri/Cargo.toml`, and
+   `src-tauri/tauri.conf.json` to the same value, in a commit on `master`.
+2. Push that commit and let CI go green — this confirms the three files agree.
+3. Tag the resulting commit `vX.Y.Z` and push the tag. This triggers `release.yml` and
+   re-runs `version-agreement` against the tag itself.
+
+Bumping the files without tagging, and tagging without bumping the files, are both
+caught by the `version-agreement` check — a build won't stay green (or a tag push won't
+pass) until all four sources agree.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under its MIT License.
