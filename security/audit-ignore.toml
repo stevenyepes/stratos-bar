@@ -1,0 +1,208 @@
+# Security audit ignore list
+#
+# Consulted by scripts/check-audit-ignores.py from the `test-backend` and
+# `test-frontend` CI jobs. See CONTRIBUTING.md ("Security Audits") for the
+# rules on adding an entry.
+#
+# Each [[ignore]] entry silences exactly one advisory ID for one tool until
+# its `expires` date. Once that date has passed, the entry is dropped and the
+# advisory fails the build again until it is re-triaged (renewed with a new
+# `expires`, or actually fixed).
+
+[[ignore]]
+id = "RUSTSEC-2026-0007"
+tool = "cargo"
+reason = "bytes: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "RUSTSEC-2026-0009"
+tool = "cargo"
+reason = "time: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "RUSTSEC-2026-0194"
+tool = "cargo"
+reason = "quick-xml: transitive dependency (two coexisting versions), no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "RUSTSEC-2026-0195"
+tool = "cargo"
+reason = "quick-xml: transitive dependency (two coexisting versions), no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "RUSTSEC-2026-0204"
+tool = "cargo"
+reason = "crossbeam-epoch: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-f886-m6hf-6m8v"
+tool = "npm"
+reason = "brace-expansion: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-3jxr-9vmj-r5cp"
+tool = "npm"
+reason = "brace-expansion: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-mh99-v99m-4gvg"
+tool = "npm"
+reason = "brace-expansion: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-rgw5-rvv9-x895"
+tool = "npm"
+reason = "brace-expansion: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-67mh-4wv8-2f99"
+tool = "npm"
+reason = "esbuild: transitive dependency of vite, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-qjx8-664m-686j"
+tool = "npm"
+reason = "js-cookie: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-29qv-4j9f-fjw5"
+tool = "npm"
+reason = "mathjs: direct dependency; upgrade requires a coordinated major bump out of scope for this audit-gate ticket"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-jvff-x2qm-6286"
+tool = "npm"
+reason = "mathjs: direct dependency; upgrade requires a coordinated major bump out of scope for this audit-gate ticket"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-3ppc-4f35-3m26"
+tool = "npm"
+reason = "minimatch: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-7r86-cg39-jmmj"
+tool = "npm"
+reason = "minimatch: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-23c5-xmqv-rm74"
+tool = "npm"
+reason = "minimatch: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-28wg-ghj8-5hjv"
+tool = "npm"
+reason = "nanoid: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-2v37-7h3g-55p8"
+tool = "npm"
+reason = "nanoid: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-xwg4-73v4-xw9w"
+tool = "npm"
+reason = "nanoid: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-3v7f-55p6-f55p"
+tool = "npm"
+reason = "picomatch: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-c2c7-rcm5-vvqj"
+tool = "npm"
+reason = "picomatch: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-qx2v-qp2m-jg93"
+tool = "npm"
+reason = "postcss: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-6g55-p6wh-862q"
+tool = "npm"
+reason = "postcss: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-fxqj-rqcc-2cmp"
+tool = "npm"
+reason = "postcss: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-r28c-9q8g-f849"
+tool = "npm"
+reason = "postcss: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-mw96-cpmx-2vgc"
+tool = "npm"
+reason = "rollup: transitive dependency of vite, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-4w7w-66w2-5vf9"
+tool = "npm"
+reason = "vite: direct dependency; upgrade requires a coordinated major bump out of scope for this audit-gate ticket"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-v2wj-q39q-566r"
+tool = "npm"
+reason = "vite: direct dependency; upgrade requires a coordinated major bump out of scope for this audit-gate ticket"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-p9ff-h696-f583"
+tool = "npm"
+reason = "vite: direct dependency; upgrade requires a coordinated major bump out of scope for this audit-gate ticket"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-v6wh-96g9-6wx3"
+tool = "npm"
+reason = "vite: transitive via launch-editor, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-fx2h-pf6j-xcff"
+tool = "npm"
+reason = "vite: direct dependency; upgrade requires a coordinated major bump out of scope for this audit-gate ticket"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-58qx-3vcg-4xpx"
+tool = "npm"
+reason = "ws: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"
+
+[[ignore]]
+id = "GHSA-96hv-2xvq-fx4p"
+tool = "npm"
+reason = "ws: transitive dependency, no direct fix available in this repo"
+expires = "2026-10-15"

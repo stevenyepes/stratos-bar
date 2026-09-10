@@ -131,7 +131,7 @@ impl WindowBackend for WmctrlBackend {
                 let title = parts[4..].join(" ");
                 let class = class_full
                     .split('.')
-                    .last()
+                    .next_back()
                     .unwrap_or(&class_full)
                     .to_string();
 

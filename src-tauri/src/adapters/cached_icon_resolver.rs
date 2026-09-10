@@ -109,11 +109,21 @@ fn path_has_root_prefix(canonical_candidate: &Path, roots: &[PathBuf]) -> bool {
     })
 }
 
+/// Keyed by (icon name, size, scale, theme) — the full set of inputs a lookup
+/// depends on, so entries for different themes or scales never collide.
+type IconCache = Arc<Mutex<HashMap<(String, u16, u16, String), Option<String>>>>;
+
 pub struct CachedIconResolver {
-    cache: Arc<Mutex<HashMap<(String, u16, u16, String), Option<String>>>>,
+    cache: IconCache,
     byte_cache: Arc<Mutex<HashMap<PathBuf, Arc<Vec<u8>>>>>,
     theme: String,
     icon_roots: Arc<Vec<PathBuf>>,
+}
+
+impl Default for CachedIconResolver {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CachedIconResolver {

@@ -110,7 +110,7 @@ pub async fn search_files_logic(
     }
 
     // Sort by score descending
-    matches.sort_by(|a, b| b.1.cmp(&a.1));
+    matches.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
 
     // Take top 50
     let results: Vec<String> = matches.into_iter().take(50).map(|(p, _)| p).collect();
@@ -218,7 +218,7 @@ pub async fn check_is_executable(path: String) -> Result<bool, String> {
     {
         use std::os::unix::fs::PermissionsExt;
         let metadata = p.metadata().map_err(|e| e.to_string())?;
-        return Ok(metadata.permissions().mode() & 0o111 != 0);
+        Ok(metadata.permissions().mode() & 0o111 != 0)
     }
     #[cfg(not(unix))]
     {

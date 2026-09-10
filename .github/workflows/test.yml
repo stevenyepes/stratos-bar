@@ -20,7 +20,12 @@ jobs:
           
       - name: Install dependencies
         run: npm ci
-        
+
+      - name: npm audit
+        run: |
+          npm audit --json > npm-audit.json || true
+          python3 scripts/check-audit-ignores.py --tool npm --npm-audit-json npm-audit.json
+
       - name: Run tests
         run: npm run test -- --run
 
@@ -41,7 +46,19 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          
+
+      - name: Verify audit-ignore expiry enforcement
+        run: python3 scripts/check-audit-ignores.py --self-test
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: cargo audit
+        working-directory: src-tauri
+        run: |
+          IGNORE_ARGS=$(python3 ../scripts/check-audit-ignores.py --tool cargo)
+          cargo audit $IGNORE_ARGS
+
       - name: Run tests
         run: cargo test
         working-directory: src-tauri

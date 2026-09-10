@@ -68,7 +68,7 @@ pub async fn execute_script(
     let output = child.wait().await.map_err(|e| e.to_string())?;
 
     let status_msg = if output.success() {
-        format!("> Success! (Exit code 0)\n")
+        "> Success! (Exit code 0)\n".to_string()
     } else {
         format!("> Failed! (Exit code {})\n", output.code().unwrap_or(-1))
     };

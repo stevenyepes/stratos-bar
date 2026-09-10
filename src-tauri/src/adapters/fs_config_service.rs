@@ -7,6 +7,12 @@ pub struct FsConfigService {
     custom_root: Option<PathBuf>,
 }
 
+impl Default for FsConfigService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FsConfigService {
     pub fn new() -> Self {
         Self { custom_root: None }
@@ -75,8 +81,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let service = FsConfigService::new_with_root(dir.path().to_path_buf());
 
-        let mut config = AppConfig::default();
-        config.preferred_model = "test_model".to_string();
+        let config = AppConfig {
+            preferred_model: "test_model".to_string(),
+            ..Default::default()
+        };
 
         // Save
         service.save_config(&config).expect("Failed to save config");

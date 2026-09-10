@@ -1,8 +1,8 @@
 use crate::domain::apps::AppEntry;
+use crate::ports::app_launcher_port::AppLauncher;
 use crate::ports::app_port::AppRepository;
 use crate::state::AppState;
 use std::collections::HashMap;
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use tauri::State;
 
@@ -80,41 +80,30 @@ fn split_command(cmd: &str) -> Result<Vec<String>, String> {
     Ok(argv)
 }
 
-fn spawn_argv(
-    argv: &[String],
-    env: &HashMap<String, String>,
-    current_dir: Option<&str>,
-) -> Result<(), String> {
-    if argv.is_empty() {
-        return Err("Empty command".to_string());
-    }
-
-    let cmd = &argv[0];
-    if !cmd.contains('/') && which::which(cmd).is_err() {
-        return Err(format!("Command not found in PATH: {cmd}"));
-    }
-
-    let mut command = std::process::Command::new(cmd);
-    command
-        .args(&argv[1..])
-        .env_clear()
-        .envs(env)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .process_group(0);
-
-    if let Some(dir) = current_dir {
-        command.current_dir(dir);
-    }
-
-    command.spawn().map_err(|e| e.to_string())?;
-
-    Ok(())
+fn generate_scope_name(app_id: &str) -> String {
+    let sanitized: String = app_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!(
+        "stratos-bar-{sanitized}-{}-{}.scope",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    )
 }
 
 pub fn launch_app_logic(
     repo: &dyn AppRepository,
+    launcher: &dyn AppLauncher,
     id: &str,
     env: &HashMap<String, String>,
 ) -> Result<(), String> {
@@ -124,29 +113,43 @@ pub fn launch_app_logic(
         .ok_or_else(|| format!("No app found for id: {id}"))?;
 
     let argv = build_exec_argv(&entry.exec)?;
-    spawn_argv(&argv, env, entry.working_dir.as_deref())
+    let scope_name = generate_scope_name(&entry.id);
+    launcher.launch(&argv, env, entry.working_dir.as_deref(), &scope_name)
 }
 
 #[tauri::command]
 pub async fn launch_app(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    launch_app_logic(&*state.app_repository, &id, &state.env_port.snapshot())
+    launch_app_logic(
+        &*state.app_repository,
+        &*state.app_launcher,
+        &id,
+        &state.env_port.snapshot(),
+    )
 }
 
-pub fn run_command_logic(cmd: &str, env: &HashMap<String, String>) -> Result<(), String> {
+pub fn run_command_logic(
+    launcher: &dyn AppLauncher,
+    cmd: &str,
+    env: &HashMap<String, String>,
+) -> Result<(), String> {
     let argv = split_command(cmd)?;
-    spawn_argv(&argv, env, None)
+    let scope_name = generate_scope_name("run-command");
+    launcher.launch(&argv, env, None, &scope_name)
 }
 
 #[tauri::command]
 pub async fn run_command(state: State<'_, AppState>, cmd: String) -> Result<(), String> {
-    run_command_logic(&cmd, &state.env_port.snapshot())
+    run_command_logic(&*state.app_launcher, &cmd, &state.env_port.snapshot())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::systemd_launcher::SystemdScopeLauncher;
     use crate::domain::apps::AppSource;
+    use crate::ports::app_launcher_port::MockAppLauncher;
     use crate::ports::app_port::MockAppRepository;
+    use mockall::Predicate;
 
     #[test]
     fn test_list_apps() {
@@ -268,7 +271,8 @@ mod tests {
 
     #[test]
     fn test_run_command_logic_empty_command_errs() {
-        assert!(run_command_logic("", &HashMap::new()).is_err());
+        let mock = MockAppLauncher::new();
+        assert!(run_command_logic(&mock, "", &HashMap::new()).is_err());
     }
 
     #[test]
@@ -298,8 +302,9 @@ mod tests {
     fn test_launch_app_logic_missing_id_errs() {
         let mut mock = MockAppRepository::new();
         mock.expect_resolve().returning(|_| Ok(None));
+        let launcher = MockAppLauncher::new();
 
-        let result = launch_app_logic(&mock, "nonexistent", &HashMap::new());
+        let result = launch_app_logic(&mock, &launcher, "nonexistent", &HashMap::new());
         assert!(result.is_err());
     }
 
@@ -308,8 +313,9 @@ mod tests {
         let mut mock = MockAppRepository::new();
         mock.expect_resolve()
             .returning(|_| Err("repository failure".to_string()));
+        let launcher = MockAppLauncher::new();
 
-        let result = launch_app_logic(&mock, "any", &HashMap::new());
+        let result = launch_app_logic(&mock, &launcher, "any", &HashMap::new());
         assert!(result.is_err());
     }
 
@@ -326,9 +332,10 @@ mod tests {
         let mut mock = MockAppRepository::new();
         mock.expect_resolve()
             .returning(move |_| Ok(Some(entry.clone())));
+        let launcher = SystemdScopeLauncher::with_availability_override(false);
 
         let snapshot: HashMap<String, String> = std::env::vars().collect();
-        let result = launch_app_logic(&mock, "app-with-cwd", &snapshot);
+        let result = launch_app_logic(&mock, &launcher, "app-with-cwd", &snapshot);
         assert!(
             result.is_ok(),
             "launch_app_logic failed: {:?}",
@@ -371,7 +378,8 @@ mod tests {
             marker.display()
         );
 
-        let result = run_command_logic(&cmd, &snapshot);
+        let launcher = SystemdScopeLauncher::with_availability_override(false);
+        let result = run_command_logic(&launcher, &cmd, &snapshot);
 
         std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER");
 
@@ -392,5 +400,48 @@ mod tests {
              environment from a snapshot captured before main.rs mutates it, not from live \
              inheritance"
         );
+    }
+
+    #[test]
+    fn test_launch_app_logic_delegates_to_launcher() {
+        let entry = fixture_app_entry("app-a", "echo hi", Some("/tmp".to_string()));
+        let mut repo = MockAppRepository::new();
+        repo.expect_resolve()
+            .returning(move |_| Ok(Some(entry.clone())));
+
+        let mut launcher = MockAppLauncher::new();
+        launcher
+            .expect_launch()
+            .times(1)
+            .withf(|argv, env, current_dir, _scope_name| {
+                mockall::predicate::eq(vec!["echo".to_string(), "hi".to_string()]).eval(argv)
+                    && mockall::predicate::eq(HashMap::new()).eval(env)
+                    && *current_dir == Some("/tmp")
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        let result = launch_app_logic(&repo, &launcher, "app-a", &HashMap::new());
+        assert!(
+            result.is_ok(),
+            "launch_app_logic failed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_generate_scope_name_is_distinct_across_calls() {
+        let first = generate_scope_name("firefox");
+        let second = generate_scope_name("firefox");
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn test_generate_scope_name_sanitizes_special_characters() {
+        let name = generate_scope_name("org/app with space");
+        assert!(!name.contains('/'));
+        assert!(!name.contains(' '));
+        assert!(name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')));
     }
 }
