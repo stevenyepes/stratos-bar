@@ -140,12 +140,14 @@ mod tests {
 
     #[test]
     fn test_apply_defaults_preserves_existing() {
-        let mut config = AppConfig::default();
-        config.preferred_model = "cloud".to_string();
-        config.theme = Some(ThemeConfig {
-            name: "Custom".to_string(),
+        let mut config = AppConfig {
+            preferred_model: "cloud".to_string(),
+            theme: Some(ThemeConfig {
+                name: "Custom".to_string(),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
 
         config.apply_defaults();
 

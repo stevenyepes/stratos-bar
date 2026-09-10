@@ -6,4 +6,5 @@ pub mod google_translation_service;
 pub mod http_ai_service;
 pub mod linux_window_service;
 pub mod process_environment;
+pub mod systemd_launcher;
 pub mod webkit_nvidia_quirk;

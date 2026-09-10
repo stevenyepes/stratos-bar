@@ -4867,6 +4867,7 @@ dependencies = [
  "glob",
  "image",
  "ksni",
+ "libc",
  "mockall",
  "notify",
  "notify-debouncer-full",

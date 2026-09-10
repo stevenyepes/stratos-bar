@@ -2,9 +2,19 @@ use crate::ports::icon_port::IconResolver;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// Keyed by (icon name, size, scale, theme) — the full set of inputs a lookup
+/// depends on, so entries for different themes or scales never collide.
+type IconCache = Arc<Mutex<HashMap<(String, u16, u16, String), Option<String>>>>;
+
 pub struct CachedIconResolver {
-    cache: Arc<Mutex<HashMap<(String, u16, u16, String), Option<String>>>>,
+    cache: IconCache,
     theme: String,
+}
+
+impl Default for CachedIconResolver {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CachedIconResolver {
