@@ -1,3 +1,4 @@
+use crate::adapters::preview_grants::PreviewGrants;
 use crate::ports::ai_port::AiService;
 use crate::ports::app_launcher_port::AppLauncher;
 use crate::ports::app_port::AppRepository;
@@ -19,4 +20,8 @@ pub struct AppState {
     pub history_repository: Arc<dyn HistoryRepository>,
     pub translation_service: Arc<dyn TranslationService>,
     pub env_port: Arc<dyn EnvironmentPort>,
+    /// Paths the backend has surfaced and the webview may therefore fetch over
+    /// the `asset:` scheme. Concrete rather than a port: it is a security
+    /// mediation detail of this process, with no alternate implementation.
+    pub preview_grants: Arc<PreviewGrants>,
 }
