@@ -196,12 +196,6 @@ reason = "vite: direct dependency; upgrade requires a coordinated major bump out
 expires = "2026-10-15"
 
 [[ignore]]
-id = "GHSA-5xrq-8626-4rwp"
-tool = "npm"
-reason = "vitest: direct devDependency; upgrade requires a coordinated major bump out of scope for this audit-gate ticket"
-expires = "2026-10-15"
-
-[[ignore]]
 id = "GHSA-58qx-3vcg-4xpx"
 tool = "npm"
 reason = "ws: transitive dependency, no direct fix available in this repo"
