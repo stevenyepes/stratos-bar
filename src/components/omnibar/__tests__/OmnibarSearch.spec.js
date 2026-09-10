@@ -122,4 +122,39 @@ describe('OmnibarSearch', () => {
             }),
         })
     })
+
+    it('shows a visible error banner when launch_app fails (e.g. unresolvable terminal emulator)', async () => {
+        const { recentActions } = useOmnibar()
+        recentActions.value = [
+            { id: 'app:foo.desktop', kind: 'app', content: '/usr/bin/foo', name: 'Foo' },
+        ]
+
+        invoke.mockImplementation((cmd) => {
+            if (cmd === 'get_recent_actions') return Promise.resolve([])
+            if (cmd === 'list_windows') return Promise.resolve([])
+            if (cmd === 'launch_app') return Promise.reject('No terminal emulator found to launch Foo')
+            return Promise.resolve(undefined)
+        })
+
+        const wrapper = mount(OmnibarSearch, {
+            global: {
+                plugins: [vuetify],
+            },
+        })
+
+        expect(wrapper.find('.launch-error-banner').exists()).toBe(false)
+
+        const recentActionItem = wrapper.findAll('.result-item')[1]
+        await recentActionItem.trigger('click')
+        await flushPromises()
+
+        const banner = wrapper.find('.launch-error-banner')
+        expect(banner.exists()).toBe(true)
+        expect(banner.text()).toContain('No terminal emulator found to launch Foo')
+
+        await wrapper.find('.search-input').setValue('x')
+        await flushPromises()
+
+        expect(wrapper.find('.launch-error-banner').exists()).toBe(false)
+    })
 })

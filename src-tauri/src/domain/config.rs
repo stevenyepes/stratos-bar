@@ -58,6 +58,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub custom_app_dirs: Vec<PathBuf>,
+
+    #[serde(default)]
+    pub terminal_emulator: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -157,5 +160,15 @@ mod tests {
 
         // But should still fill in missing ones (ai_tools)
         assert!(!config.ai_tools.is_empty());
+    }
+
+    #[test]
+    fn test_apply_defaults_leaves_terminal_emulator_untouched() {
+        let mut config = AppConfig::default();
+        assert!(config.terminal_emulator.is_none());
+
+        config.apply_defaults();
+
+        assert!(config.terminal_emulator.is_none());
     }
 }
